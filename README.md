@@ -1,2 +1,2 @@
 # RegexParser
-regular expression parser
+regular expression parser and matcher
