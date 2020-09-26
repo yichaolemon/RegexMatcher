@@ -20,6 +20,7 @@ enum CharacterClass {
   Whitespace, // \s
   Negation(Box<CharacterClass>), // [^a], \W
   Union(Box<CharacterClass>, Box<CharacterClass>), // [ab]
+  Range(char, char), // a-z
 }
 
 enum Regex {
@@ -123,14 +124,43 @@ fn parse_character_class(input_str: &str) -> ParseResult {
     negation = true;
     str_remaining = str_remaining.get(1..).unwrap();
   }
-  // TODO: handle a-z
-
+  // we have to do this annoying thing for Range like a-z
   let (regex, mut str_remaining) = parse_single_char(str_remaining)?;
   let mut char_class = regex.try_into()?;
+  if (str_remaining.starts_with("-")) {
+    let start_char = match char_class {
+      CharacterClass::Char(c) => c,
+      _ => return Err(ParseError { msg: "Invalid `-` range expression".into_string() })
+    };
+
+    match parse_single_char(str_remaining.get(1..).unwrap())? {
+      Ok((Regex::Char(c), s)) => {
+        str_remaining = s;
+        char_class = CharacterClass::Range(start_char, c);
+      },
+      _ => return Err(ParseError { msg: "Invalid `-` range expression".into_string() })
+    }
+  }
 
   while !str_remaining.starts_with("]") && !str_remaining.is_empty() {
-    let (regex2, str_remaining2) = parse_single_char(input_str)?;
+    let (regex2, str_remaining2) = parse_single_char(str_remaining)?;
     char_class = CharacterClass::Union(char_class.into(), regex2.try_into()?);
+    if (str_remaining.starts_with("-")) {
+      let start_char = match char_class {
+        CharacterClass::Char(c) => c,
+        _ => return Err(ParseError { msg: "Invalid `-` range expression".into_string() })
+      };
+
+      match parse_single_char(str_remaining.get(1..).unwrap())? {
+        Ok((Regex::Char(c), s)) => {
+          str_remaining = s;
+          char_class = CharacterClass::Range(start_char, c);
+        },
+        _ => return Err(ParseError { msg: "Invalid `-` range expression".into_string() })
+      }
+    } else {
+
+    }
     str_remaining = str_remaining2;
   }
   if negation {
@@ -149,8 +179,10 @@ fn parse_single_char(input_str: &str) -> ParseResult {
       let regex = escaped_char(str_remaining.chars().next().unwrap())?;
       Ok((regex, str_remaining.get(1..).unwrap()))
     }
+  } else if str_remaining.is_empty() {
+    Err(ParseError { msg: "Error".into_string() })
   } else {
-    Ok()
+    Ok((Regex::Char(str_remaining.chars().next().unwrap()), str_remaining.get(1..).unwrap()))
   }
 }
 
