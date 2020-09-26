@@ -123,6 +123,7 @@ fn parse_character_class(input_str: &str) -> ParseResult {
     negation = true;
     str_remaining = str_remaining.get(1..).unwrap();
   }
+  // TODO: handle a-z
 
   let (regex, mut str_remaining) = parse_single_char(str_remaining)?;
   let mut char_class = regex.try_into()?;
@@ -139,5 +140,20 @@ fn parse_character_class(input_str: &str) -> ParseResult {
 }
 
 fn parse_single_char(input_str: &str) -> ParseResult {
+  let mut str_remaining = input_str;
+  if str_remaining.starts_with("\\") {
+    if str_remaining.is_empty() {
+      Err(ParseError{msg: "lonely backslash wants to escape something".to_string()})
+    } else {
+      // We only care about ascii.
+      let regex = escaped_char(str_remaining.chars().next().unwrap())?;
+      Ok((regex, str_remaining.get(1..).unwrap()))
+    }
+  } else {
+    Ok()
+  }
+}
+
+fn escaped_char(c: char) -> Result<Regex, ParseError> {
 
 }
