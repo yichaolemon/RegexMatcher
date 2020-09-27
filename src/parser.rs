@@ -18,6 +18,7 @@ enum CharacterClass {
   Char(char), // [a]
   Word, // \w
   Whitespace, // \s
+  Digit, // \d
   Negation(Box<CharacterClass>), // [^a], \W
   Union(Box<CharacterClass>, Box<CharacterClass>), // [ab]
   Range(char, char), // a-z
@@ -34,6 +35,7 @@ enum Regex {
   Alternative(Box<Regex>, Box<Regex>), // a|b
 }
 
+/// turn whole string into regex
 impl TryFrom<&str> for Regex {
   type Error = ParseError;
 
@@ -44,6 +46,40 @@ impl TryFrom<&str> for Regex {
       true => Ok(regex),
       false => Err(ParseError {msg: "Invalid regex expression".into_string()})
     }
+  }
+}
+
+/// turn regex into the underlying character class
+impl TryFrom<Regex> for CharacterClass {
+  type Error = ParseError;
+
+  fn try_from(value: Regex) -> Result<Self, Self::Error> {
+    match value {
+      Regex::Char(c) => Ok(CharacterClass::Char(c)),
+      Regex::Class(class) => Ok(class),
+      _ => Err(ParseError{msg : "unreachable".into_string() })
+    }
+  }
+}
+
+/// turn char class into regex character class
+impl From<CharacterClass> for Regex {
+  fn from(char_class: CharacterClass) -> Self {
+    Regex::Class(char_class)
+  }
+}
+
+/// turn characters into regex character class
+impl From<char> for Regex {
+  fn from(c: char) -> Self {
+    Regex::Char(c)
+  }
+}
+
+/// turn string into parse errors
+impl From<&str> for ParseError {
+  fn from(s: &str) -> Self {
+    ParseError { msg : s.to_string() }
   }
 }
 
@@ -104,29 +140,39 @@ fn parse_atom(input_str: &str) -> ParseResult {
   Ok
 }
 
-impl TryFrom<Regex> for CharacterClass {
-  type Error = ParseError;
-
-  fn try_from(value: Regex) -> Result<Self, Self::Error> {
-    match value {
-      Regex::Char(c) => Ok(CharacterClass::Char(c)),
-      Regex::Class(class) => Ok(class),
-      _ => Err(ParseError{msg : "unreachable".into_string() })
-    }
-  }
-}
-
 // parse [...]
 fn parse_character_class(input_str: &str) -> ParseResult {
   let mut negation = false;
   let mut str_remaining = input_str;
+
+  // check if it's negation
   if str_remaining.starts_with("^") {
     negation = true;
     str_remaining = str_remaining.get(1..).unwrap();
   }
-  // we have to do this annoying thing for Range like a-z
+
+  // start out with a character class.
+  let (regex, mut str_remaining) = parse_character_class_atom(str_remaining)?;
+  let mut char_class = regex.try_into()?;
+
+  while !str_remaining.starts_with("]") && !str_remaining.is_empty() {
+    let (regex2, str_remaining2) = parse_character_class_atom(str_remaining)?;
+    char_class = CharacterClass::Union(char_class.into(), regex2.try_into()?);
+    str_remaining = str_remaining2;
+  }
+
+  if negation {
+    char_class = CharacterClass::Negation(char_class.into());
+  }
+
+  Ok((Regex::Class(char_class), str_remaining))
+}
+
+fn parse_character_class_atom(input_str: &str) -> ParseResult {
+  let mut str_remaining = input_str;
   let (regex, mut str_remaining) = parse_single_char(str_remaining)?;
   let mut char_class = regex.try_into()?;
+
   if (str_remaining.starts_with("-")) {
     let start_char = match char_class {
       CharacterClass::Char(c) => c,
@@ -142,31 +188,7 @@ fn parse_character_class(input_str: &str) -> ParseResult {
     }
   }
 
-  while !str_remaining.starts_with("]") && !str_remaining.is_empty() {
-    let (regex2, str_remaining2) = parse_single_char(str_remaining)?;
-    char_class = CharacterClass::Union(char_class.into(), regex2.try_into()?);
-    if (str_remaining.starts_with("-")) {
-      let start_char = match char_class {
-        CharacterClass::Char(c) => c,
-        _ => return Err(ParseError { msg: "Invalid `-` range expression".into_string() })
-      };
-
-      match parse_single_char(str_remaining.get(1..).unwrap())? {
-        Ok((Regex::Char(c), s)) => {
-          str_remaining = s;
-          char_class = CharacterClass::Range(start_char, c);
-        },
-        _ => return Err(ParseError { msg: "Invalid `-` range expression".into_string() })
-      }
-    } else {
-
-    }
-    str_remaining = str_remaining2;
-  }
-  if negation {
-    char_class = CharacterClass::Negation(char_class.into());
-  }
-  Ok((Regex::Class(char_class.into()), str_remaining))
+  Ok((Regex::Class(char_class), str_remaining))
 }
 
 fn parse_single_char(input_str: &str) -> ParseResult {
@@ -187,5 +209,12 @@ fn parse_single_char(input_str: &str) -> ParseResult {
 }
 
 fn escaped_char(c: char) -> Result<Regex, ParseError> {
-
+  match c {
+    'n' => Ok('\n'.into()),
+    't' => Ok('\t'.into()),
+    'r' => Ok('\r'.into()),
+    'w' => Ok(CharacterClass::Word.into()),
+    'W' => Ok(CharacterClass::Negation(CharacterClass::Word.into()).into()),
+    's' => Ok(CharacterClass::Whitespace.into()),
+  }
 }
