@@ -1,6 +1,8 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
+const SPECIAL_CHARS: &str = "[\\^$.|?*+()";
+
 #[derive(Debug)]
 pub struct ParseError {
   msg: String,
@@ -132,10 +134,17 @@ fn parse_atom(input_str: &str) -> ParseResult {
     if str_remaining.starts_with(")") {
       Ok((Regex::Group(regex.into(), 0), str_remaining.get(1..).unwrap()))
     } else {
-      Err(ParseError { msg: "Unbalanced parenthesis in regex".into_string() })
+      Err("Unbalanced parenthesis in regex".into())
     }
   } else if input_str.starts_with("[") {
-    let (regex, )
+    let (regex, str_remaining) = parse_character_class(input_str.get(1..).unwrap())?;
+    if str_remaining.starts_with("]") {
+      Ok((regex, str_remaining.get(1..).unwrap()))
+    } else {
+      Err("Unclosed character class in regex".into())
+    }
+  } else {
+    // can not be a special char: [, \, ^, $, ., |, ?, *, +, (, )
   }
   Ok
 }
@@ -202,7 +211,7 @@ fn parse_single_char(input_str: &str) -> ParseResult {
       Ok((regex, str_remaining.get(1..).unwrap()))
     }
   } else if str_remaining.is_empty() {
-    Err(ParseError { msg: "Error".into_string() })
+    Err("Expected char but got end of string".into())
   } else {
     Ok((Regex::Char(str_remaining.chars().next().unwrap()), str_remaining.get(1..).unwrap()))
   }
@@ -216,5 +225,9 @@ fn escaped_char(c: char) -> Result<Regex, ParseError> {
     'w' => Ok(CharacterClass::Word.into()),
     'W' => Ok(CharacterClass::Negation(CharacterClass::Word.into()).into()),
     's' => Ok(CharacterClass::Whitespace.into()),
+    'S' => Ok(CharacterClass::Negation(CharacterClass::Whitespace.into()).into()),
+    'd' => Ok(CharacterClass::Digit.into()),
+    'D' => Ok(CharacterClass::Negation(CharacterClass::Digit.into()).into()),
+    _ => Err(format!("Illegal escape char: {}", c).into())
   }
 }
