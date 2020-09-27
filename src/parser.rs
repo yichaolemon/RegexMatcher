@@ -1,7 +1,9 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
+use std::fmt::Formatter;
+use std::ops::Deref;
 
-const SPECIAL_CHARS: &str = "[\\^$.|?*+()";
+// const SPECIAL_CHARS: &str = "[\\^$.|?*+()";
 
 #[derive(Debug)]
 pub struct ParseError {
@@ -56,7 +58,64 @@ impl TryFrom<&str> for Regex {
 
     match str_remaining.is_empty() {
       true => Ok(regex),
-      false => Err(ParseError {msg: "Invalid regex expression".into_string()})
+      false => Err("Invalid regex expression".into())
+    }
+  }
+}
+
+impl fmt::Display for Regex {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      Regex::Char(c) => write!(f, "{}", c),
+      Regex::Class(char_class) => write!(f, "{}", char_class),
+      Regex::Group(r, _) => write!(f, "({})", r.deref()),
+      Regex::Boundary(b) => write!(f, "{}", b),
+      Regex::Kleene(r) => write!(f, "{}*", r),
+      Regex::Plus(r) => write!(f, "{}+", r),
+      Regex::Optional(r) => write!(f, "{}?", r),
+      Regex::Concat(r1, r2) => write!(f, "{}{}", r1, r2),
+      Regex::Alternative(r1, r2) => write!(f, "{}|{}", r1, r2),
+    }
+  }
+}
+
+impl fmt::Display for CharacterClass {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+
+    fn inner_fmt(cc: &CharacterClass, f: &mut Formatter<'_>) -> fmt::Result {
+      match cc {
+        CharacterClass::Char(c) => write!(f, "{}", c),
+        CharacterClass::Any => panic!("Any not allowed inside []"),
+        CharacterClass::Range(a, b) => write!(f, "{}-{}", a, b),
+        CharacterClass::Union(cc1, cc2) => {inner_fmt(cc1, f)?; inner_fmt(cc2, f)},
+        CharacterClass::Word => write!(f, "\\w"),
+        CharacterClass::Digit => write!(f, "\\d"),
+        CharacterClass::Whitespace => write!(f, "\\s"),
+        CharacterClass::Negation(cc) =>
+          match cc.deref() {
+            CharacterClass::Word => write!(f, "\\w"),
+            CharacterClass::Digit => write!(f, "\\d"),
+            CharacterClass::Whitespace => write!(f, "\\s"),
+            _ => panic!("Negation must be at the top level of character class"),
+          },
+      }
+    }
+
+    match self {
+      CharacterClass::Any => write!(f, "."),
+      CharacterClass::Negation(cc) => { write!(f, "[^")?; inner_fmt(cc, f)?; write!(f, "]") },
+      _ => { write!(f, "[")?; inner_fmt(self, f)?; write!(f, "]") },
+    }
+  }
+}
+
+impl fmt::Display for Boundary {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      Boundary::Any => fmt::Result::Ok(()),
+      Boundary::Start => write!(f, "^"),
+      Boundary::End => write!(f, "$"),
+      Boundary::Word => write!(f, "\\b"),
     }
   }
 }
@@ -69,7 +128,7 @@ impl TryFrom<Regex> for CharacterClass {
     match value {
       Regex::Char(c) => Ok(CharacterClass::Char(c)),
       Regex::Class(class) => Ok(class),
-      _ => Err(ParseError{msg : "unreachable".into_string() })
+      _ => Err( "unreachable".into() )
     }
   }
 }
@@ -81,7 +140,7 @@ impl From<CharacterClass> for Regex {
   }
 }
 
-/// turn characters into regex character class
+/// turn characters into regex character
 impl From<char> for Regex {
   fn from(c: char) -> Self {
     Regex::Char(c)
@@ -96,7 +155,7 @@ impl From<&str> for ParseError {
 }
 
 fn parse_regex(input_str: &str) -> ParseResult {
-  unimplemented!()
+  parse_alternative(input_str)
 }
 
 fn parse_alternative(input_str: &str) -> ParseResult {
@@ -137,7 +196,7 @@ fn parse_quantifiers(input_str: &str) -> ParseResult {
   Ok((regex, str_remaining))
 }
 
-// Char, Group, Class
+// Char, Group, Class, Boundaries
 fn parse_atom(input_str: &str) -> ParseResult {
   if input_str.starts_with("(") {
     let (regex, str_remaining) = parse_alternative(input_str.get(1..).unwrap())?;
@@ -183,11 +242,12 @@ fn parse_character_class(input_str: &str) -> ParseResult {
 
   // start out with a character class.
   let (regex, mut str_remaining) = parse_character_class_atom(str_remaining)?;
-  let mut char_class = regex.try_into()?;
+  let mut char_class: CharacterClass = regex.try_into()?;
 
   while !str_remaining.starts_with("]") && !str_remaining.is_empty() {
     let (regex2, str_remaining2) = parse_character_class_atom(str_remaining)?;
-    char_class = CharacterClass::Union(char_class.into(), regex2.try_into()?);
+    let next_char_class: CharacterClass = regex2.try_into()?;
+    char_class = CharacterClass::Union(char_class.into(), next_char_class.into());
     str_remaining = str_remaining2;
   }
 
@@ -199,22 +259,21 @@ fn parse_character_class(input_str: &str) -> ParseResult {
 }
 
 fn parse_character_class_atom(input_str: &str) -> ParseResult {
-  let mut str_remaining = input_str;
-  let (regex, mut str_remaining) = parse_single_char(str_remaining)?;
+  let (regex, mut str_remaining) = parse_single_char(input_str)?;
   let mut char_class = regex.try_into()?;
 
-  if (str_remaining.starts_with("-")) {
+  if str_remaining.starts_with("-") {
     let start_char = match char_class {
       CharacterClass::Char(c) => c,
-      _ => return Err(ParseError { msg: "Invalid `-` range expression".into_string() })
+      _ => return Err( "Invalid `-` range expression".into() )
     };
 
     match parse_single_char(str_remaining.get(1..).unwrap())? {
-      Ok((Regex::Char(c), s)) => {
+      (Regex::Char(c), s) => {
         str_remaining = s;
         char_class = CharacterClass::Range(start_char, c);
       },
-      _ => return Err(ParseError { msg: "Invalid `-` range expression".into_string() })
+      _ => return Err( "Invalid `-` range expression".into() )
     }
   }
 
@@ -222,7 +281,7 @@ fn parse_character_class_atom(input_str: &str) -> ParseResult {
 }
 
 fn parse_single_char(input_str: &str) -> ParseResult {
-  let mut str_remaining = input_str;
+  let str_remaining = input_str;
   if str_remaining.starts_with("\\") {
     if str_remaining.is_empty() {
       Err(ParseError{msg: "lonely backslash wants to escape something".to_string()})
@@ -249,6 +308,22 @@ fn escaped_char(c: char) -> Result<Regex, ParseError> {
     'S' => Ok(CharacterClass::Negation(CharacterClass::Whitespace.into()).into()),
     'd' => Ok(CharacterClass::Digit.into()),
     'D' => Ok(CharacterClass::Negation(CharacterClass::Digit.into()).into()),
-    _ => Err(format!("Illegal escape char: {}", c).into())
+    'b' => Ok(Regex::Boundary(Boundary::Word)),
+    _ => Err((&*format!("Illegal escape char: {}", c)).into())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn test_parse_display_inverse(s: &str) {
+    let regex: Regex = s.try_into().unwrap();
+    assert_eq!(format!("{}", regex), s)
+  }
+
+  #[test]
+  fn parse_and_display() {
+    test_parse_display_inverse("abc");
   }
 }
