@@ -18,6 +18,7 @@ type ParseResult<'a> = Result<(Regex, &'a str), ParseError>;
 
 enum CharacterClass {
   Char(char), // [a]
+  Any, // .
   Word, // \w
   Whitespace, // \s
   Digit, // \d
@@ -26,10 +27,19 @@ enum CharacterClass {
   Range(char, char), // a-z
 }
 
+/// zero-width matcher
+enum Boundary {
+  Any, // matches any boundary
+  Word, // \b
+  Start, // ^
+  End, // $
+}
+
 enum Regex {
   Char(char), // a, \n
   Group(Box<Regex>, i32), // (a) with a group index
   Class(CharacterClass), // \w , [abc], [a-z], [$#.\w], [^abc], [^abc\w]
+  Boundary(Boundary),
   Kleene(Box<Regex>), // a*
   Plus(Box<Regex>), // a+
   Optional(Box<Regex>), // a?
@@ -143,10 +153,21 @@ fn parse_atom(input_str: &str) -> ParseResult {
     } else {
       Err("Unclosed character class in regex".into())
     }
+  } else if input_str.starts_with("^") {
+    Ok((Regex::Boundary(Boundary::Start), input_str.get(1..).unwrap()))
+  } else if input_str.starts_with("$") {
+    Ok((Regex::Boundary(Boundary::End), input_str.get(1..).unwrap()))
+  } else if input_str.starts_with(".") {
+    Ok((Regex::Class(CharacterClass::Any), input_str.get(1..).unwrap()))
+  } else if input_str.is_empty()
+    || input_str.starts_with("|")
+    || input_str.starts_with("?")
+    || input_str.starts_with("*")
+    || input_str.starts_with(")") {
+    Ok((Regex::Boundary(Boundary::Any), input_str))
   } else {
-    // can not be a special char: [, \, ^, $, ., |, ?, *, +, (, )
+    parse_single_char(input_str)
   }
-  Ok
 }
 
 // parse [...]
