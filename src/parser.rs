@@ -3,7 +3,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::ops::Deref;
 
-// const SPECIAL_CHARS: &str = "[\\^$.|?*+()";
+const SPECIAL_CHARS: &str = "[\\^$.|?*+()";
 
 #[derive(Debug)]
 pub struct ParseError {
@@ -18,7 +18,8 @@ impl fmt::Display for ParseError {
 
 type ParseResult<'a> = Result<(Regex, &'a str), ParseError>;
 
-enum CharacterClass {
+#[derive(Debug)]
+pub enum CharacterClass {
   Char(char), // [a]
   Any, // .
   Word, // \w
@@ -30,14 +31,16 @@ enum CharacterClass {
 }
 
 /// zero-width matcher
-enum Boundary {
+#[derive(Debug)]
+pub enum Boundary {
   Any, // matches any boundary
   Word, // \b
   Start, // ^
   End, // $
 }
 
-enum Regex {
+#[derive(Debug)]
+pub enum Regex {
   Char(char), // a, \n
   Group(Box<Regex>, i32), // (a) with a group index
   Class(CharacterClass), // \w , [abc], [a-z], [$#.\w], [^abc], [^abc\w]
@@ -66,7 +69,12 @@ impl TryFrom<&str> for Regex {
 impl fmt::Display for Regex {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
-      Regex::Char(c) => write!(f, "{}", c),
+      Regex::Char(c) => {
+        if SPECIAL_CHARS.contains(*c) {
+          write!(f, "\\")?
+        };
+        write!(f, "{}", c)
+      }
       Regex::Class(char_class) => write!(f, "{}", char_class),
       Regex::Group(r, _) => write!(f, "({})", r.deref()),
       Regex::Boundary(b) => write!(f, "{}", b),
@@ -87,7 +95,10 @@ impl fmt::Display for CharacterClass {
         CharacterClass::Char(c) => write!(f, "{}", c),
         CharacterClass::Any => panic!("Any not allowed inside []"),
         CharacterClass::Range(a, b) => write!(f, "{}-{}", a, b),
-        CharacterClass::Union(cc1, cc2) => {inner_fmt(cc1, f)?; inner_fmt(cc2, f)},
+        CharacterClass::Union(cc1, cc2) => {
+          inner_fmt(cc1, f)?;
+          inner_fmt(cc2, f)
+        },
         CharacterClass::Word => write!(f, "\\w"),
         CharacterClass::Digit => write!(f, "\\d"),
         CharacterClass::Whitespace => write!(f, "\\s"),
@@ -171,8 +182,8 @@ fn parse_alternative(input_str: &str) -> ParseResult {
 
 fn parse_concat(input_str: &str) -> ParseResult {
   let (mut regex, mut str_remaining) = parse_quantifiers(input_str)?;
-  while !str_remaining.starts_with("|") && !str_remaining.is_empty() {
-    let (regex2, str_remaining2) = parse_quantifiers(str_remaining.get(1..).unwrap())?;
+  while !(str_remaining.is_empty() || str_remaining.starts_with("|") || str_remaining.starts_with(")")) {
+    let (regex2, str_remaining2) = parse_quantifiers(str_remaining)?;
     regex = Regex::Concat(regex.into(), regex2.into());
     str_remaining = str_remaining2;
   }
@@ -281,8 +292,9 @@ fn parse_character_class_atom(input_str: &str) -> ParseResult {
 }
 
 fn parse_single_char(input_str: &str) -> ParseResult {
-  let str_remaining = input_str;
+  let mut str_remaining = input_str;
   if str_remaining.starts_with("\\") {
+    str_remaining = str_remaining.get(1..).unwrap();
     if str_remaining.is_empty() {
       Err(ParseError{msg: "lonely backslash wants to escape something".to_string()})
     } else {
@@ -293,7 +305,9 @@ fn parse_single_char(input_str: &str) -> ParseResult {
   } else if str_remaining.is_empty() {
     Err("Expected char but got end of string".into())
   } else {
-    Ok((Regex::Char(str_remaining.chars().next().unwrap()), str_remaining.get(1..).unwrap()))
+    let rest = str_remaining.get(1..).unwrap();
+    let first_char = str_remaining.chars().next().unwrap();
+    Ok((Regex::Char(first_char), rest))
   }
 }
 
@@ -309,7 +323,12 @@ fn escaped_char(c: char) -> Result<Regex, ParseError> {
     'd' => Ok(CharacterClass::Digit.into()),
     'D' => Ok(CharacterClass::Negation(CharacterClass::Digit.into()).into()),
     'b' => Ok(Regex::Boundary(Boundary::Word)),
-    _ => Err((&*format!("Illegal escape char: {}", c)).into())
+    _ =>
+      if SPECIAL_CHARS.contains(c) {
+        Ok(c.into())
+      } else {
+        Err((&*format!("Illegal escape char: {}", c)).into())
+      }
   }
 }
 
@@ -319,11 +338,37 @@ mod tests {
 
   fn test_parse_display_inverse(s: &str) {
     let regex: Regex = s.try_into().unwrap();
+    println!("regex for {} is {:?}", s, regex);
     assert_eq!(format!("{}", regex), s)
   }
 
   #[test]
-  fn parse_and_display() {
+  fn concat() {
     test_parse_display_inverse("abc");
+  }
+
+  #[test]
+  fn simple_group() {
+    test_parse_display_inverse("(a)");
+  }
+
+  #[test]
+  fn group() {
+    test_parse_display_inverse("(a)bc");
+  }
+
+  #[test]
+  fn char_class() {
+    test_parse_display_inverse("[word][\\w]");
+  }
+
+  #[test]
+  fn dots() {
+    test_parse_display_inverse("a.*b.*c");
+  }
+
+  #[test]
+  fn phone_number() {
+    test_parse_display_inverse("^\\(?([0-9]{3})\\)?[-.]?([0-9]{3})[-.]?([0-9]{4})$");
   }
 }
