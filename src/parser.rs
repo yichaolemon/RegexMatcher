@@ -39,7 +39,7 @@ pub enum Boundary {
   End, // $
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Regex {
   Char(char), // a, \n
   Group(Box<Regex>, i32), // (a) with a group index

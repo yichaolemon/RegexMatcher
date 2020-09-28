@@ -1,22 +1,22 @@
-use std::rc::Rc;
 use crate::parser::{CharacterClass, Regex, Boundary};
 use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
 use std::hash::Hash;
-#[macro_use] extern crate maplit;
 
-struct Node<T, U> {
+#[derive(Debug)]
+pub struct Node<T, U> {
   id: T,
   // edges are character classes
   transitions: Vec<(U, T)>,
 }
 
-struct Graph<T, U> {
+#[derive(Debug)]
+pub struct Graph<T, U> {
   root: T,
   terminals: HashSet<T>,
   map: HashMap<T, Node<T, U>>,
 }
 
+#[derive(Debug, Clone)]
 pub enum NfaTransition {
   Empty, // no op
   Character(CharacterClass),
@@ -24,7 +24,7 @@ pub enum NfaTransition {
 }
 
 /// reindexing the nodes when merging two graphs
-fn graph_reindex<T: Hash + Eq, U: Clone, F: FnMut(&T) -> T>(graph: Graph<T, U>, mut f: F) -> Graph<T, U> {
+fn graph_reindex<T: Hash + Eq, U, F: FnMut(&T) -> T>(graph: Graph<T, U>, mut f: F) -> Graph<T, U> {
   let mut map = HashMap::new();
   for (id, node) in graph.map.into_iter() {
     map.insert(f(&id), Node {
@@ -42,11 +42,17 @@ fn graph_reindex<T: Hash + Eq, U: Clone, F: FnMut(&T) -> T>(graph: Graph<T, U>, 
 fn nfa_with_one_transition(t: NfaTransition) -> Graph<i32, NfaTransition> {
   Graph{
     root: 0,
-    terminals: hashset!{0, 1},
+    terminals: hashset!{1},
     map: hashmap!{
       0 => Node{id: 0, transitions: vec!((t, 1))},
       1 => Node{id: 1, transitions: vec!()},
     },
+  }
+}
+
+impl From<&Regex> for Graph<i32, NfaTransition> {
+  fn from(r: &Regex) -> Self {
+    return build_nfa(r)
   }
 }
 
@@ -58,7 +64,7 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       let mut left_nfa = build_nfa(left);
       let right_nfa = graph_reindex(
         build_nfa(right),
-        |id| *id + left_nfa.map.len(),
+        |id| *id + (left_nfa.map.len() as i32),
       );
       left_nfa.map.extend(right_nfa.map);
       left_nfa.terminals.extend(right_nfa.terminals);
@@ -74,7 +80,7 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       let mut left_nfa = build_nfa(left);
       let right_nfa = graph_reindex(
         build_nfa(right),
-        |id| *id + left_nfa.map.len(),
+        |id| *id + (left_nfa.map.len() as i32),
       );
       for terminal in left_nfa.terminals.into_iter() {
         left_nfa.map.get_mut(&terminal).unwrap()
@@ -91,16 +97,16 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
     },
     Regex::Plus(r) => {
       let mut nfa = build_nfa(r);
-      for terminal in nfa.terminals.into_iter() {
-        nfa.map.get_mut(&terminal).unwrap()
+      for terminal in nfa.terminals.iter() {
+        nfa.map.get_mut(terminal).unwrap()
           .transitions.push((NfaTransition::Empty, nfa.root));
       }
       nfa
     },
     Regex::Kleene(r) => {
       let mut nfa = build_nfa(r);
-      for terminal in nfa.terminals.into_iter() {
-        nfa.map.get_mut(&terminal).unwrap()
+      for terminal in nfa.terminals.iter() {
+        nfa.map.get_mut(terminal).unwrap()
           .transitions.push((NfaTransition::Empty, nfa.root));
       }
       nfa.terminals.insert(nfa.root);
@@ -110,14 +116,13 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       nfa_with_one_transition(NfaTransition::Boundary(b.clone()))
     },
     Regex::Class(cc) => {
-      Graph{
-        root: 0,
-
-      }
-    }
-  }
-
-  Graph {
-
+      nfa_with_one_transition(NfaTransition::Character(cc.clone()))
+    },
+    Regex::Group(r, _) => {
+      build_nfa(r)
+    },
+    Regex::Char(c) => {
+      nfa_with_one_transition(NfaTransition::Character(CharacterClass::Char(*c)))
+    },
   }
 }
