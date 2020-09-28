@@ -2,14 +2,14 @@ use crate::parser::{CharacterClass, Regex, Boundary};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node<T, U> {
   id: T,
   // edges are character classes
   transitions: Vec<(U, T)>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Graph<T, U> {
   root: T,
   terminals: HashSet<T>,
