@@ -18,7 +18,7 @@ impl fmt::Display for ParseError {
 
 type ParseResult<'a> = Result<(Regex, &'a str), ParseError>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CharacterClass {
   Char(char), // [a]
   Any, // .
@@ -31,7 +31,7 @@ pub enum CharacterClass {
 }
 
 /// zero-width matcher
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Boundary {
   Any, // matches any boundary
   Word, // \b
