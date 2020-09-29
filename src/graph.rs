@@ -1,6 +1,7 @@
 use crate::parser::{CharacterClass, Regex, Boundary};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
+use std::ops::Deref;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -53,6 +54,54 @@ fn nfa_with_one_transition(t: NfaTransition) -> Graph<i32, NfaTransition> {
 impl From<&Regex> for Graph<i32, NfaTransition> {
   fn from(r: &Regex) -> Self {
     return build_nfa(r)
+  }
+}
+
+impl CharacterClass {
+  pub fn example(&self) -> char {
+    match self {
+      CharacterClass::Char(c) => *c,
+      CharacterClass::Any => '/',
+      CharacterClass::Word => 'z',
+      CharacterClass::Whitespace => ' ',
+      CharacterClass::Digit => '7',
+      CharacterClass::Negation(cc) => {
+        match cc.deref() {
+          CharacterClass::Char(c) => (*c) ^ 1,
+          CharacterClass::Any => panic!("not possible to have negation of Any"),
+          CharacterClass::Word =>
+          CharacterClass::Whitespace => {}
+          CharacterClass::Digit => {}
+          CharacterClass::Negation(_) => {}
+          CharacterClass::Union(_, _) => {}
+          CharacterClass::Range(_, _) => {}
+        }
+      },
+      CharacterClass::Union(cc1, cc2) => cc1.example(),
+      CharacterClass::Range(a, b) => *a,
+    }
+    None
+  }
+}
+
+fn example_transition(s: &String, transition: NfaTransition) -> String {
+  match transition {
+    NfaTransition::Empty => s.clone(),
+    NfaTransition::Character(cc) =>
+    NfaTransition::Boundary(_) => {}
+  }
+}
+
+impl Graph<T, NfaTransition> {
+  pub fn example(&self) -> Option<String> {
+    let mut queue = VecDeque::new();
+    queue.push_back((self.root, String::new()));
+    loop {
+      let (node, s) = queue.pop_front()?;
+      for (transition, dest) in self.map.get(node)?.transitions.iter() {
+
+      }
+    }
   }
 }
 
