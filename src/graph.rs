@@ -1,5 +1,5 @@
 use crate::parser::{CharacterClass, Regex, Boundary};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
 
 #[derive(Debug, Clone)]
@@ -22,6 +22,9 @@ pub enum NfaTransition {
   Character(CharacterClass),
   Boundary(Boundary),
 }
+
+#[derive(Debug, Clone)]
+struct DfaTransition(CharacterClass);
 
 /// reindexing the nodes when merging two graphs
 fn graph_reindex<T: Hash + Eq, U, F: FnMut(&T) -> T>(graph: Graph<T, U>, mut f: F) -> Graph<T, U> {
@@ -71,15 +74,27 @@ impl CharacterClass {
   }
 }
 
-fn example_transition(s: &String, transition: &NfaTransition) -> String {
-  match transition {
-    NfaTransition::Empty => s.clone(),
-    NfaTransition::Character(cc) => format!("{}{}", s, cc.example()),
-    NfaTransition::Boundary(_) => s.clone(),  // This is wrong but it's okay.
+trait Transition {
+  fn example(&self, s: &String) -> String;
+}
+
+impl Transition for NfaTransition {
+  fn example(&self, s: &String) -> String {
+    match self {
+      NfaTransition::Empty => s.clone(),
+      NfaTransition::Character(cc) => format!("{}{}", s, cc.example()),
+      NfaTransition::Boundary(_) => s.clone(),  // This is wrong but it's okay.
+    }
   }
 }
 
-impl<T: Eq + Hash> Graph<T, NfaTransition> {
+impl Transition for DfaTransition {
+  fn example(&self, s: &String) -> String {
+    format!("{}{}", s, self.0.example())
+  }
+}
+
+impl<T: Eq + Hash, U: Transition> Graph<T, U> {
   pub fn example(&self) -> Option<String> {
     let mut queue = VecDeque::new();
     queue.push_back((&self.root, String::new()));
@@ -89,7 +104,7 @@ impl<T: Eq + Hash> Graph<T, NfaTransition> {
         return Some(s)
       }
       for (transition, dest) in self.map.get(id)?.transitions.iter() {
-        queue.push_back((dest, example_transition(&s, transition)));
+        queue.push_back((dest, transition.example(&s)));
       }
     }
   }
@@ -164,4 +179,8 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       nfa_with_one_transition(NfaTransition::Character(CharacterClass::Char(*c)))
     },
   }
+}
+
+pub fn nfa_to_dfa(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
+
 }
