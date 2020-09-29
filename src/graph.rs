@@ -1,7 +1,6 @@
 use crate::parser::{CharacterClass, Regex, Boundary};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
-use std::ops::Deref;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -65,41 +64,32 @@ impl CharacterClass {
       CharacterClass::Word => 'z',
       CharacterClass::Whitespace => ' ',
       CharacterClass::Digit => '7',
-      CharacterClass::Negation(cc) => {
-        match cc.deref() {
-          CharacterClass::Char(c) => (*c) ^ 1,
-          CharacterClass::Any => panic!("not possible to have negation of Any"),
-          CharacterClass::Word =>
-          CharacterClass::Whitespace => {}
-          CharacterClass::Digit => {}
-          CharacterClass::Negation(_) => {}
-          CharacterClass::Union(_, _) => {}
-          CharacterClass::Range(_, _) => {}
-        }
-      },
-      CharacterClass::Union(cc1, cc2) => cc1.example(),
-      CharacterClass::Range(a, b) => *a,
+      CharacterClass::Negation(_) => '!',  // This is wrong but it's okay because the correct thing is hard.
+      CharacterClass::Union(cc1, _) => cc1.example(),
+      CharacterClass::Range(a, _) => *a,
     }
-    None
   }
 }
 
-fn example_transition(s: &String, transition: NfaTransition) -> String {
+fn example_transition(s: &String, transition: &NfaTransition) -> String {
   match transition {
     NfaTransition::Empty => s.clone(),
-    NfaTransition::Character(cc) =>
-    NfaTransition::Boundary(_) => {}
+    NfaTransition::Character(cc) => format!("{}{}", s, cc.example()),
+    NfaTransition::Boundary(_) => s.clone(),  // This is wrong but it's okay.
   }
 }
 
-impl Graph<T, NfaTransition> {
+impl<T: Eq + Hash> Graph<T, NfaTransition> {
   pub fn example(&self) -> Option<String> {
     let mut queue = VecDeque::new();
-    queue.push_back((self.root, String::new()));
+    queue.push_back((&self.root, String::new()));
     loop {
-      let (node, s) = queue.pop_front()?;
-      for (transition, dest) in self.map.get(node)?.transitions.iter() {
-
+      let (id, s) = queue.pop_front()?;
+      if self.terminals.contains(id) {
+        return Some(s)
+      }
+      for (transition, dest) in self.map.get(id)?.transitions.iter() {
+        queue.push_back((dest, example_transition(&s, transition)));
       }
     }
   }
