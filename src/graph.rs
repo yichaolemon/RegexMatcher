@@ -9,7 +9,7 @@ pub struct Node<T, U> {
   transitions: Vec<(U, T)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Graph<T, U> {
   root: T,
   terminals: HashSet<T>,
@@ -181,6 +181,53 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
   }
 }
 
-pub fn nfa_to_dfa(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
+/// find all nodes in the graph that are \epsilon away from given node set, mutate in place
+fn bfs_epsilon<T, U, F: FnMut(&U) -> bool>(mut nodes: &BTreeSet<T>, graph: &Graph<T, U>, mut f: F) {
+  let mut queue = VecDeque::new();
+  nodes.iter().for_each(|node| queue.push_back(node));
 
+  while !queue.is_empty() {
+    let i = queue.pop_front().unwrap();
+    let transitions = &graph.map.get(i).unwrap().transitions.iter()
+      .filter_map(|(cc, j)| if f(cc) {Some(j)} else {None}).collect();
+    for j in transitions {
+      if !nodes.contains(j) {
+        queue.push_back(j);
+        nodes.insert(j);
+      }
+    }
+  }
+}
+
+/// given a non-deterministic finite automata, construct its equivalent deterministic finite automata
+pub fn nfa_to_dfa<T>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
+  let mut iter_set: BTreeSet<T> = BTreeSet::new();
+  iter_set.insert(nfa.root);
+  let mut stack = VecDeque::new();
+  stack.push_back(iter_set);
+  let mut boo = true;
+
+  let mut dfa = Graph::default();
+
+  while !stack.is_empty() {
+    iter_set = stack.pop_front().unwrap();
+    // merge all the nodes that are \epsilon away
+    bfs_epsilon(&iter_set, &nfa, |cc| cc == NfaTransition::Empty);
+    if boo { dfa.root = iter_set; boo = false; }
+    if dfa.map.contains_key(&iter_set) {
+      continue
+    }
+    // construct the new edges
+    let edges: Vec<(NfaTransition, T)> = iter_set.iter().flat_map(|i| nfa.map.get(i).unwrap().transitions.iter()
+      .filter(|(cc, j)| !iter_set.contains(j))
+      .collect())
+      .collect();
+    let
+    let new_node = Node {
+      id: iter_set,
+      transitions:
+    }
+  }
+
+  None
 }
