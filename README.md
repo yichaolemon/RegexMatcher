@@ -1,2 +1,3 @@
-# RegexParser
-regular expression parser and matcher
+# RegexMatcher
+
+Regular expression parser and matcher, among a few other things. 
