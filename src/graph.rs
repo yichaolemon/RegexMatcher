@@ -222,12 +222,47 @@ pub fn nfa_to_dfa<T>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTran
       .filter(|(cc, j)| !iter_set.contains(j))
       .collect())
       .collect();
-    let
+    let mut new_edges = Vec::new();
+    for (cc, i) in edges.iter() {
+      new_edges.push(())
+    }
     let new_node = Node {
       id: iter_set,
-      transitions:
-    }
+      transitions: new_edges,
+    };
   }
 
   None
+}
+
+// returns cc1 intersect cc2 and cc1 setminus cc2
+fn intersect_transitions(cc1: &DfaTransition, cc2: &DfaTransition) -> DfaTransition {
+
+}
+
+// returns the NFATransition that
+fn subtract_intersection(cc1: &DfaTransition, cc2: &DfaTransition) -> NfaTransition {
+
+}
+
+fn cover_transitions<T>(transitions: Vec<(NfaTransition, T)>) -> HashMap<DfaTransition, BTreeSet<T>> {
+  let mut result = HashMap::new();
+  let mut to_intersect = VecDeque::new();
+  for (transition, i) in transitions.iter() {
+    let mut set = BTreeSet::new();
+    set.insert(i);
+    to_intersect.push_back((transition, set));
+  }
+  while !to_intersect.is_empty() {
+    let (cc, s) = to_intersect.pop_front();
+    for (cc2, s2) in to_intersect.iter() {
+      let (intersect, leftover) = intersect_transitions(cc, cc2);
+      if intersect != NfaTransition::Empty {
+        to_intersect.push_back((intersect, s.union(s2));
+      }
+    }
+    if leftover != NfaTransition::Empty {
+      result.insert(leftover, s);
+    }
+  }
 }
