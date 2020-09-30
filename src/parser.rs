@@ -18,7 +18,7 @@ impl fmt::Display for ParseError {
 
 type ParseResult<'a> = Result<(Regex, &'a str), ParseError>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub enum CharacterClass {
   Char(char), // [a]
   Any, // .

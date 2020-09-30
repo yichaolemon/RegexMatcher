@@ -23,7 +23,7 @@ pub enum NfaTransition {
   Boundary(Boundary),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 struct DfaTransition(CharacterClass);
 
 /// reindexing the nodes when merging two graphs
@@ -246,23 +246,53 @@ fn subtract_intersection(cc1: &DfaTransition, cc2: &DfaTransition) -> NfaTransit
 }
 
 fn cover_transitions<T>(transitions: Vec<(NfaTransition, T)>) -> HashMap<DfaTransition, BTreeSet<T>> {
+}
+
+trait MathSet: Eq + Clone {
+  fn intersect(&self, other: &Self) -> Self;
+  fn setminus(&self, other: &Self) -> Self;
+  fn is_empty(&self) -> bool;
+}
+
+impl MathSet for DfaTransition {
+  fn intersect(&self, other: &Self) -> Self {
+    unimplemented!()
+  }
+
+  fn setminus(&self, other: &Self) -> Self {
+    unimplemented!()
+  }
+
+  fn is_empty(&self) -> bool {
+    unimplemented!()
+  }
+  // TODO
+}
+
+// Given some mathematical sets (given as id->set), find all intersections
+fn set_covering<T, S: MathSet>(sets: HashMap<T, S>) -> HashMap<BTreeSet<T>, S> {
   let mut result = HashMap::new();
   let mut to_intersect = VecDeque::new();
-  for (transition, i) in transitions.iter() {
-    let mut set = BTreeSet::new();
-    set.insert(i);
-    to_intersect.push_back((transition, set));
+
+  for (i, input_set) in sets.iter() {
+    let mut ids = BTreeSet::new();
+    ids.insert(i);
+    to_intersect.push_back((input_set, ids));
   }
+
   while !to_intersect.is_empty() {
-    let (cc, s) = to_intersect.pop_front();
-    for (cc2, s2) in to_intersect.iter() {
-      let (intersect, leftover) = intersect_transitions(cc, cc2);
-      if intersect != NfaTransition::Empty {
-        to_intersect.push_back((intersect, s.union(s2));
+    let (s, ids) = to_intersect.pop_front();
+    let mut leftover = s.clone();
+    for (s2, ids2) in to_intersect.iter() {
+      let intersection = s.intersect(s2);
+      if !intersection.is_empty() {
+        to_intersect.push_back((intersection, ids.union(ids2)));
       }
+      leftover = leftover.setminus(s2);
     }
-    if leftover != NfaTransition::Empty {
-      result.insert(leftover, s);
+    if !leftover.is_empty() {
+      result.insert(ids, leftover);
     }
   }
+  result
 }
