@@ -272,21 +272,21 @@ impl MathSet for DfaTransition {
 // Given some mathematical sets (given as id->set), find all intersections
 fn set_covering<T, S: MathSet>(sets: HashMap<T, S>) -> HashMap<BTreeSet<T>, S> {
   let mut result = HashMap::new();
-  let mut to_intersect = VecDeque::new();
+  let mut to_process = VecDeque::new();
 
   for (i, input_set) in sets.iter() {
     let mut ids = BTreeSet::new();
     ids.insert(i);
-    to_intersect.push_back((input_set, ids));
+    to_process.push_back((input_set, ids));
   }
 
-  while !to_intersect.is_empty() {
-    let (s, ids) = to_intersect.pop_front();
+  while !to_process.is_empty() {
+    let (s, ids) = to_process.pop_front();
     let mut leftover = s.clone();
-    for (s2, ids2) in to_intersect.iter() {
+    for (s2, ids2) in to_process.iter() {
       let intersection = s.intersect(s2);
       if !intersection.is_empty() {
-        to_intersect.push_back((intersection, ids.union(ids2)));
+        to_process.push_back((intersection, ids.union(ids2)));
       }
       leftover = leftover.setminus(s2);
     }
