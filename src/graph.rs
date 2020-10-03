@@ -216,6 +216,7 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone>(nfa: Graph<T, NfaTransition>) -> Graph<
 
   let mut dfa = Graph::default();
 
+  // TODO: push onto stack
   while !stack.is_empty() {
     let mut iter_set = stack.pop_front().unwrap();
     // merge all the nodes that are \epsilon away
@@ -260,17 +261,74 @@ trait MathSet: Hash + Eq + Clone {
   fn is_empty(&self) -> bool;
 }
 
-impl MathSet for DfaTransition {
-  // TODO
+impl CharacterClass {
+  pub fn matches_char(&self, c: char) -> bool {
+    match self {
+      CharacterClass::Char(c1) => c == *c1,
+      CharacterClass::Any => true,
+      CharacterClass::Word => c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_',
+      CharacterClass::Whitespace => c == ' ' || c == '\n' || c == '\r' || c == '\t',
+      CharacterClass::Digit => c >= '0' && c <= '9',
+      CharacterClass::Negation(cc) => !cc.matches_char(c),
+      CharacterClass::Union(cc1, cc2) => cc1.matches_char(c) || cc2.matches_char(c),
+      CharacterClass::Range(a, b) => c >= *a && c <= *b,
+    }
+  }
+}
+
+impl MathSet for CharacterClass {
   fn intersect(&self, other: &Self) -> Self {
-    unimplemented!()
+    match self {
+      CharacterClass::Char(c) => if other.matches_char(*c) { self.clone() } else { CharacterClass::default() },
+      CharacterClass::Any => other.clone(),
+      CharacterClass::Word => match other {
+        CharacterClass::Word => self.clone(),
+        CharacterClass::Whitespace => CharacterClass::default(),
+        CharacterClass::Digit => other.clone(),
+        _ => other.intersect(self),
+      },
+      CharacterClass::Whitespace => match other {
+        CharacterClass::Word => CharacterClass::default(),
+        CharacterClass::Whitespace => self.clone(),
+        CharacterClass::Digit => CharacterClass::default(),
+        _ => other.intersect(self),
+      },
+      CharacterClass::Digit => match other {
+        CharacterClass::Word => self.clone(),
+        CharacterClass::Whitespace => CharacterClass::default(),
+        CharacterClass::Digit => self.clone(),
+        _ => other.intersect(self),
+      }
+      CharacterClass::Negation(cc) =>
+        // de morgan's law. intersection is inverse of union of inverses.
+        CharacterClass::Negation(CharacterClass::Union(CharacterClass::Negation(other.into()).into(), cc.clone()).into()),
+      CharacterClass::Union(cc1, cc2) =>
+        CharacterClass::Union(cc1.intersect(other).into(), cc2.intersect(other).into()),
+      CharacterClass::Range(a, b) => unimplemented!(),
+    }
   }
 
   fn setminus(&self, other: &Self) -> Self {
     unimplemented!()
   }
 
-  fn is_empty(&self) -> bool { unimplemented!() }
+  fn is_empty(&self) -> bool {
+    unimplemented!()
+  }
+}
+
+impl MathSet for DfaTransition {
+  fn intersect(&self, other: &Self) -> Self {
+    return DfaTransition(self.0.intersect(&(*other).0));
+  }
+
+  fn setminus(&self, other: &Self) -> Self {
+    return DfaTransition(self.0.setminus(&(*other).0));
+  }
+
+  fn is_empty(&self) -> bool {
+    return self.0.is_empty()
+  }
 }
 
 // Given some mathematical sets (given as id->set), find all intersections
