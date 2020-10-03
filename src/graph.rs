@@ -16,15 +16,15 @@ pub struct Graph<T, U> {
   map: HashMap<T, Node<T, U>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NfaTransition {
   Empty, // no op
   Character(CharacterClass),
   Boundary(Boundary),
 }
 
-#[derive(Debug, Clone, Eq)]
-struct DfaTransition(CharacterClass);
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct DfaTransition(CharacterClass);
 
 /// reindexing the nodes when merging two graphs
 fn graph_reindex<T: Hash + Eq, U, F: FnMut(&T) -> T>(graph: Graph<T, U>, mut f: F) -> Graph<T, U> {
@@ -74,7 +74,7 @@ impl CharacterClass {
   }
 }
 
-trait Transition {
+pub trait Transition {
   fn example(&self, s: &String) -> String;
 }
 
@@ -182,27 +182,34 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
 }
 
 /// find all nodes in the graph that are \epsilon away from given node set, mutate in place
-fn bfs_epsilon<T, U, F: FnMut(&U) -> bool>(mut nodes: &BTreeSet<T>, graph: &Graph<T, U>, mut f: F) {
+fn bfs_epsilon<T: Hash + Ord + Clone, U, F: FnMut(&U) -> bool>(
+  nodes: &mut BTreeSet<T>, graph: &Graph<T, U>, mut f: F
+) {
   let mut queue = VecDeque::new();
-  nodes.iter().for_each(|node| queue.push_back(node));
+  for node in nodes.iter() {
+    // clone is necessary because we will be inserting into nodes, so we can't take a
+    // reference to a node. A reference is a pointer that will be invalidated when the BTreeSet
+    // gets bigger.
+    queue.push_back(node.clone());
+  }
 
   while !queue.is_empty() {
     let i = queue.pop_front().unwrap();
-    let transitions = &graph.map.get(i).unwrap().transitions.iter()
-      .filter_map(|(cc, j)| if f(cc) {Some(j)} else {None}).collect();
+    let transitions = graph.map.get(&i).unwrap().transitions.iter()
+      .filter_map(|(cc, j)| if f(cc) {Some(j)} else {None});
     for j in transitions {
       if !nodes.contains(j) {
-        queue.push_back(j);
-        nodes.insert(j);
+        queue.push_back(j.clone());
+        nodes.insert(j.clone());
       }
     }
   }
 }
 
 /// given a non-deterministic finite automata, construct its equivalent deterministic finite automata
-pub fn nfa_to_dfa<T>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
+pub fn nfa_to_dfa<T: Hash + Ord + Clone>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
   let mut iter_set: BTreeSet<T> = BTreeSet::new();
-  iter_set.insert(nfa.root);
+  iter_set.insert(nfa.root.clone());
   let mut stack = VecDeque::new();
   stack.push_back(iter_set);
   let mut boo = true;
@@ -210,51 +217,51 @@ pub fn nfa_to_dfa<T>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTran
   let mut dfa = Graph::default();
 
   while !stack.is_empty() {
-    iter_set = stack.pop_front().unwrap();
+    let mut iter_set = stack.pop_front().unwrap();
     // merge all the nodes that are \epsilon away
-    bfs_epsilon(&iter_set, &nfa, |cc| cc == NfaTransition::Empty);
-    if boo { dfa.root = iter_set; boo = false; }
+    bfs_epsilon(&mut iter_set, &nfa, |cc| *cc == NfaTransition::Empty);
+    if boo { dfa.root = iter_set.clone(); boo = false; }
     if dfa.map.contains_key(&iter_set) {
       continue
     }
     // construct the new edges
-    let edges: Vec<(NfaTransition, T)> = iter_set.iter().flat_map(|i| nfa.map.get(i).unwrap().transitions.iter()
-      .filter(|(cc, j)| !iter_set.contains(j))
-      .collect())
-      .collect();
+    let edges: HashMap<T, DfaTransition> = iter_set.iter().flat_map(
+      |i| nfa.map.get(i).unwrap().transitions.iter()
+        .filter_map(|(cc, j)| if iter_set.contains(j) { None } else {
+          match cc {
+            NfaTransition::Empty => None,
+            NfaTransition::Character(cc) => Some((j.clone(), DfaTransition(cc.clone()))),
+            NfaTransition::Boundary(_) => unimplemented!(),
+          }
+        }).collect::<Vec<(T, DfaTransition)>>()
+    ).collect();
     let mut new_edges = Vec::new();
-    for (cc, i) in edges.iter() {
-      new_edges.push(())
+    for (ids, cc) in set_covering(edges).into_iter() {
+      new_edges.push((cc, ids))
     }
     let new_node = Node {
-      id: iter_set,
+      id: iter_set.clone(),
       transitions: new_edges,
     };
+    for i in iter_set.iter() {
+      if nfa.terminals.contains(i) {
+        dfa.terminals.insert(iter_set.clone());
+        break
+      }
+    }
+    dfa.map.insert(iter_set, new_node);
   }
-
-  None
+  dfa
 }
 
-// returns cc1 intersect cc2 and cc1 setminus cc2
-fn intersect_transitions(cc1: &DfaTransition, cc2: &DfaTransition) -> DfaTransition {
-
-}
-
-// returns the NFATransition that
-fn subtract_intersection(cc1: &DfaTransition, cc2: &DfaTransition) -> NfaTransition {
-
-}
-
-fn cover_transitions<T>(transitions: Vec<(NfaTransition, T)>) -> HashMap<DfaTransition, BTreeSet<T>> {
-}
-
-trait MathSet: Eq + Clone {
+trait MathSet: Hash + Eq + Clone {
   fn intersect(&self, other: &Self) -> Self;
   fn setminus(&self, other: &Self) -> Self;
   fn is_empty(&self) -> bool;
 }
 
 impl MathSet for DfaTransition {
+  // TODO
   fn intersect(&self, other: &Self) -> Self {
     unimplemented!()
   }
@@ -263,35 +270,39 @@ impl MathSet for DfaTransition {
     unimplemented!()
   }
 
-  fn is_empty(&self) -> bool {
-    unimplemented!()
-  }
-  // TODO
+  fn is_empty(&self) -> bool { unimplemented!() }
 }
 
 // Given some mathematical sets (given as id->set), find all intersections
-fn set_covering<T, S: MathSet>(sets: HashMap<T, S>) -> HashMap<BTreeSet<T>, S> {
+fn set_covering<T: Ord + Clone + Hash, S: MathSet>(sets: HashMap<T, S>) -> HashMap<BTreeSet<T>, S> {
   let mut result = HashMap::new();
-  let mut to_process = VecDeque::new();
+  let mut to_process = HashMap::new();
 
-  for (i, input_set) in sets.iter() {
+  for (i, input_set) in sets.into_iter() {
     let mut ids = BTreeSet::new();
     ids.insert(i);
-    to_process.push_back((input_set, ids));
+    to_process.insert(input_set, ids);
   }
 
   while !to_process.is_empty() {
-    let (s, ids) = to_process.pop_front();
+    let (s, ids) = to_process.iter().next().unwrap();
+    let (s, ids) = (s.clone(), ids.clone());
+    to_process.remove(&s);
     let mut leftover = s.clone();
+    let mut new_to_process = HashMap::new();
     for (s2, ids2) in to_process.iter() {
       let intersection = s.intersect(s2);
-      if !intersection.is_empty() {
-        to_process.push_back((intersection, ids.union(ids2)));
-      }
+      let id_union: BTreeSet<T> = ids.union(ids2).cloned().collect();
+      let merged_id_union = match to_process.get(&intersection) {
+        Some(ids3) => id_union.union(ids3).cloned().collect(),
+        None => id_union,
+      };
+      new_to_process.insert(intersection, merged_id_union);
       leftover = leftover.setminus(s2);
     }
+    to_process.extend(new_to_process);
     if !leftover.is_empty() {
-      result.insert(ids, leftover);
+      result.insert(ids.clone(), leftover);
     }
   }
   result

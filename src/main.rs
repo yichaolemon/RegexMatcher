@@ -1,4 +1,6 @@
 use std::convert::TryInto;
+use crate::graph::nfa_to_dfa;
+
 #[macro_use] extern crate maplit;
 
 mod parser;
@@ -11,4 +13,6 @@ fn main() {
     println!("nfa is {:?}", nfa);
     let example = nfa.example();
     println!("example is {}", example.unwrap());
+    let dfa = nfa_to_dfa(nfa);
+    println!("dfa is {:?}", dfa);
 }

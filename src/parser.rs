@@ -18,7 +18,7 @@ impl fmt::Display for ParseError {
 
 type ParseResult<'a> = Result<(Regex, &'a str), ParseError>;
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CharacterClass {
   Char(char), // [a]
   Any, // .
@@ -30,8 +30,14 @@ pub enum CharacterClass {
   Range(char, char), // a-z
 }
 
+impl Default for CharacterClass {
+  fn default() -> Self {
+    CharacterClass::Any
+  }
+}
+
 /// zero-width matcher
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Boundary {
   Any, // matches any boundary
   Word, // \b
@@ -39,7 +45,7 @@ pub enum Boundary {
   End, // $
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Regex {
   Char(char), // a, \n
   Group(Box<Regex>, i32), // (a) with a group index
