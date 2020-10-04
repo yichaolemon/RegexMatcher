@@ -446,11 +446,11 @@ impl MathSet for CharacterClass {
   }
 
   fn setminus(&self, other: &Self) -> Self {
-    unimplemented!()
+    self.intersect(&CharacterClass::Negation(other.clone().into()))
   }
 
   fn is_empty(&self) -> bool {
-    unimplemented!()
+    self.canonical_form() == CharacterClass::default()
   }
 }
 
@@ -501,4 +501,8 @@ fn set_covering<T: Ord + Clone + Hash, S: MathSet>(sets: HashMap<T, S>) -> HashM
     }
   }
   result
+}
+
+impl<T> Graph<T, DfaTransition> {
+
 }
