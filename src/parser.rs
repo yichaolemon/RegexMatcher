@@ -32,7 +32,7 @@ pub enum CharacterClass {
 
 impl Default for CharacterClass {
   fn default() -> Self {
-    CharacterClass::Negation(CharacterClass::Any.into())
+    CharacterClass::Range('b', 'a')  // empty
   }
 }
 

@@ -2,9 +2,7 @@ use crate::parser::{CharacterClass, Regex, Boundary};
 use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
 use std::cmp;
-use crate::graph::NfaTransition::Character;
-use std::ops::{Add, Sub};
-use crate::parser::CharacterClass::Char;
+use std::ops::Add;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -279,42 +277,82 @@ impl CharacterClass {
     }
   }
 
-  // The canonical form of any character class is a left-associative union of ranges.
+  // The canonical form of any character class is a left-associative union of sorted disjoint nonempty ranges.
   // Special cases: empty character class is Range('b', 'a').
   // All characters are ascii, from '\x00' to '\x7F'.
   pub fn canonical_form(&self) -> CharacterClass {
     match self {
       CharacterClass::Char(c) => (*c).into(),
-      CharacterClass::Any => '\x00'-'\x7F',
-      CharacterClass::Word => ('a'-'z')+('A'-'Z')+('0'-'9')+'_'.into(),
+      CharacterClass::Any => range('\x00', '\x7F'),
+      CharacterClass::Word => range('a', 'z')+range('A', 'Z')+range('0', '9')+'_'.into(),
       CharacterClass::Whitespace => ' '.into()+'\t'.into()+'\n'.into()+'\r'.into(),
-      CharacterClass::Digit => '0'-'9',
+      CharacterClass::Digit => range('0', '9'),
       CharacterClass::Negation(cc) => {
-        let mut ranges = BTreeSet::new();
+        let mut result = CharacterClass::default();
+        let mut end_of_last_range = None;
         for cc in cc.canonical_form().iter() {
+          if cc == CharacterClass::default() { continue }
           let CharacterClass::Range(a, b) = cc;
-          ranges.insert((*a, *b));
-        }
-        let mut end_of_previous_range = '\x00'; // exclusive
-        let mut result = None;
-        for (a, b) in ranges.into_iter() {
-          if a < end_of_previous_range {
-
+          match end_of_last_range {
+            Some(e) => {
+              result = result + range(char_add(e, 1), char_add(*a, -1));
+            },
+            None => if *a > '\x00' {
+              result = result + range('\x00', char_add(*a, -1));
+            },
           }
-          match result {
-            None => { result = Some(end_of_previous_range-)}
-          }
+          end_of_last_range = Some(*b);
         }
-      }
-      CharacterClass::Union(cc1, cc2) => {
-        let mut result = cc1.canonical_form();
-        // must be left associative
-        for cc in cc2.canonical_form().iter() {
-          result = result + cc.clone();
+        match end_of_last_range {
+          Some(e) => if e < '\x7F' {
+            result = result + range(e, '\x7F');
+          }
+          None => {},
         }
         result
       }
-      CharacterClass::Range(_, _) => self.clone(),
+      CharacterClass::Union(cc1, cc2) => {
+        // must be left associative, sorted, and disjoint, so we can't just union them.
+        let mut ranges = BTreeSet::new();
+        for cc in cc1.canonical_form().iter() {
+          if cc == CharacterClass::default() { continue }
+          let CharacterClass::Range(a, b) = cc;
+          ranges.insert((*a, *b));
+        }
+        for cc in cc2.canonical_form().iter() {
+          if cc == CharacterClass::default() { continue }
+          let CharacterClass::Range(a, b) = cc;
+          ranges.insert((*a, *b));
+        }
+        // ranges are sorted and nonempty, but we still may need to merge them
+        let mut previous_range = None;
+        let mut result = CharacterClass::default();
+        for (a, b) in ranges.into_iter() {
+          match previous_range {
+            None => { previous_range = Some((a, b)) }
+            Some((a0, b0)) => {
+              if a <= b0 {
+                previous_range = Some((a0, cmp::max(b, b0)));
+              } else {
+                result = result + (a0-b0);
+                previous_range = Some((a, b));
+              }
+            }
+          }
+        }
+        match previous_range {
+          None => {},
+          Some((a0, b0)) => {
+            result = result + range(a0, b0);
+          }
+        }
+        result
+      }
+      CharacterClass::Range(a, b) => if *b < *a {
+        CharacterClass::default()
+      } else {
+        self.clone()
+      },
     }
   }
 
@@ -373,78 +411,28 @@ impl Add<CharacterClass> for CharacterClass {
   type Output = CharacterClass;
 
   fn add(self, rhs: CharacterClass) -> Self::Output {
-    CharacterClass::Union(self.into(), rhs.into())
+    if self == CharacterClass::default() {
+      rhs
+    } else if rhs == CharacterClass::default() {
+      self
+    } else {
+      CharacterClass::Union(self.into(), rhs.into())
+    }
   }
 }
 
-// lolz
-impl Sub<char> for char {
-  type Output = CharacterClass;
+fn range(c1: char, c2: char) -> CharacterClass {
+  CharacterClass::Range(c1, c2)
+}
 
-  fn sub(self, rhs: char) -> Self::Output {
-    CharacterClass::Range(self, rhs)
-  }
+fn char_add(c: char, i: i32) -> char {
+  ((c as i32) + i) as char
 }
 
 impl MathSet for CharacterClass {
   fn intersect(&self, other: &Self) -> Self {
-    match self {
-      CharacterClass::Char(c) => if other.matches_char(*c) { self.clone() } else { CharacterClass::default() },
-      CharacterClass::Any => other.clone(),
-      CharacterClass::Word => match other {
-        CharacterClass::Word => self.clone(),
-        CharacterClass::Whitespace => CharacterClass::default(),
-        CharacterClass::Digit => other.clone(),
-        _ => other.intersect(self),
-      },
-      CharacterClass::Whitespace => match other {
-        CharacterClass::Word => CharacterClass::default(),
-        CharacterClass::Whitespace => self.clone(),
-        CharacterClass::Digit => CharacterClass::default(),
-        _ => other.intersect(self),
-      },
-      CharacterClass::Digit => match other {
-        CharacterClass::Word => self.clone(),
-        CharacterClass::Whitespace => CharacterClass::default(),
-        CharacterClass::Digit => self.clone(),
-        _ => other.intersect(self),
-      },
-      CharacterClass::Negation(cc) =>
-        if cc.is_empty() {
-          other.clone()
-        } else {
-          // de morgan's law. intersection is inverse of union of inverses.
-          CharacterClass::Negation(CharacterClass::Union(CharacterClass::Negation(other.into()).into(), cc.clone()).into())
-        },
-      CharacterClass::Union(cc1, cc2) =>
-        CharacterClass::Union(cc1.intersect(other).into(), cc2.intersect(other).into()),
-      CharacterClass::Range(a, b) =>
-        if (*a <= *b) {
-          match other {
-            CharacterClass::Any => self.clone(),
-            CharacterClass::Digit => {
-              let mut new_range = CharacterClass::default();
-              if '0' <= *a && *a <= '9' {
-                new_range = CharacterClass::Range(a.clone(), cmp::min(*b, '9'));
-              } else if '0' <= *b && *b <= '9' {
-                new_range = CharacterClass::Range(cmp::max(*a, '0'), b.clone());
-              }
-              if new_range == CharacterClass::Range('0', '9') { CharacterClass::Digit } else { new_range }
-            },
-            CharacterClass::Char(c) =>
-              if *a <= *c && *c <= *b { other.clone() } else { CharacterClass::default() },
-            CharacterClass::Whitespace =>
-              if *a <= ' ' && ' ' <= *b || *a <= '\n' && '\n' <= *b || *a <= '\r' && '\r' <= *b
-                || *a <= '\t' && '\t' <= *b {
-                CharacterClass::Whitespace
-              },
-            CharacterClass::Word => {}
-            CharacterClass::Negation(_) => {}
-            CharacterClass::Union(_, _) => {}
-            CharacterClass::Range(_, _) => {}
-          }
-        }
-    }
+    // wheeeeee
+    CharacterClass::Negation((CharacterClass::Negation(self.into()) + CharacterClass::Negation(other.into())).into()).canonical_form()
   }
 
   fn setminus(&self, other: &Self) -> Self {
