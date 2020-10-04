@@ -13,7 +13,7 @@ fn main() {
   println!("regex is {:?}", regex);
   let nfa: graph::Graph<i32, graph::NfaTransition> = (&regex).into();
   println!("nfa is {:?}", nfa);
-  fs::create_dir("out").unwrap();
+  fs::create_dir_all("out").unwrap();
   write_graph_to_file("out/nfa.dot", &nfa);
   let example = nfa.example();
   println!("example is {}", example.unwrap());

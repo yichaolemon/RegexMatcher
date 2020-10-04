@@ -70,7 +70,7 @@ impl<T: Hash + Eq + EdgeLabel, U: Display> Display for Graph<T, U> {
         f,
         "{} [{},{}];\n",
         label.display(),
-        if self.root == *label { "style=filled,color=\".9 .9 .9\"" } else {"shape=ellipse"},
+        if self.root == *label { "style=filled,color=\"0 0 .9\"" } else {"shape=ellipse"},
         if self.terminals.contains(label) { "peripheries=2" } else {"peripheries=1"},
       )?;
       for (transition, dst) in node.transitions.iter() {

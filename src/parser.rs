@@ -98,9 +98,9 @@ impl fmt::Display for CharacterClass {
 
     fn inner_fmt(cc: &CharacterClass, f: &mut Formatter<'_>) -> fmt::Result {
       match cc {
-        CharacterClass::Char(c) => write!(f, "{}", c),
+        CharacterClass::Char(c) => write!(f, "{}", c.escape_default().collect::<String>()),
         CharacterClass::Any => panic!("Any not allowed inside []"),
-        CharacterClass::Range(a, b) => write!(f, "{}-{}", a, b),
+        CharacterClass::Range(a, b) => write!(f, "{}-{}", a.escape_default().collect::<String>(), b.escape_default().collect::<String>()),
         CharacterClass::Union(cc1, cc2) => {
           inner_fmt(cc1, f)?;
           inner_fmt(cc2, f)
