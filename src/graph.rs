@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
 use std::cmp;
 use std::ops::Add;
+use std::fmt::Debug;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -209,7 +210,7 @@ fn bfs_epsilon<T: Hash + Ord + Clone, U, F: FnMut(&U) -> bool>(
 }
 
 /// given a non-deterministic finite automata, construct its equivalent deterministic finite automata
-pub fn nfa_to_dfa<T: Hash + Ord + Clone>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
+pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
   let mut iter_set: BTreeSet<T> = BTreeSet::new();
   iter_set.insert(nfa.root.clone());
   let mut stack = VecDeque::new();
@@ -240,12 +241,15 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone>(nfa: Graph<T, NfaTransition>) -> Graph<
     ).collect();
     let mut new_edges = Vec::new();
     for (ids, cc) in set_covering(edges).into_iter() {
-      new_edges.push((cc, ids))
+      new_edges.push((cc, ids.clone()));
+      // push ids onto the stack
+      stack.push_back(ids)
     }
     let new_node = Node {
       id: iter_set.clone(),
       transitions: new_edges,
     };
+    println!("The iter_set is {:?}", iter_set);
     for i in iter_set.iter() {
       if nfa.terminals.contains(i) {
         dfa.terminals.insert(iter_set.clone());
