@@ -84,7 +84,7 @@ impl<T: Hash + Eq + EdgeLabel, U: Display> Display for Graph<T, U> {
 impl Display for NfaTransition {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
-      NfaTransition::Empty => write!(f, "[]"),
+      NfaTransition::Empty => write!(f, "ε"),
       NfaTransition::Character(cc) => write!(f, "{}", cc),
       NfaTransition::Boundary(b) => write!(f, "{}", b),
     }
