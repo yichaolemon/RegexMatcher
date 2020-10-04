@@ -285,23 +285,26 @@ impl CharacterClass {
       CharacterClass::Char(c) => (*c).into(),
       CharacterClass::Any => range('\x00', '\x7F'),
       CharacterClass::Word => range('a', 'z')+range('A', 'Z')+range('0', '9')+'_'.into(),
-      CharacterClass::Whitespace => ' '.into()+'\t'.into()+'\n'.into()+'\r'.into(),
+      CharacterClass::Whitespace => range(' ', ' ')+'\t'.into()+'\n'.into()+'\r'.into(),
       CharacterClass::Digit => range('0', '9'),
       CharacterClass::Negation(cc) => {
         let mut result = CharacterClass::default();
         let mut end_of_last_range = None;
         for cc in cc.canonical_form().iter() {
-          if cc == CharacterClass::default() { continue }
-          let CharacterClass::Range(a, b) = cc;
+          if *cc == CharacterClass::default() { continue }
+          let (a, b) = match cc {
+            CharacterClass::Range(a, b) => (*a, *b),
+            _ => panic!("canonical form can only contain ranges"),
+          };
           match end_of_last_range {
             Some(e) => {
-              result = result + range(char_add(e, 1), char_add(*a, -1));
+              result = result + range(char_add(e, 1), char_add(a, -1));
             },
-            None => if *a > '\x00' {
-              result = result + range('\x00', char_add(*a, -1));
+            None => if a > '\x00' {
+              result = result + range('\x00', char_add(a, -1));
             },
           }
-          end_of_last_range = Some(*b);
+          end_of_last_range = Some(b);
         }
         match end_of_last_range {
           Some(e) => if e < '\x7F' {
@@ -315,14 +318,18 @@ impl CharacterClass {
         // must be left associative, sorted, and disjoint, so we can't just union them.
         let mut ranges = BTreeSet::new();
         for cc in cc1.canonical_form().iter() {
-          if cc == CharacterClass::default() { continue }
-          let CharacterClass::Range(a, b) = cc;
-          ranges.insert((*a, *b));
+          if *cc == CharacterClass::default() { continue }
+          ranges.insert(match cc {
+            CharacterClass::Range(a, b) => (*a, *b),
+            _ => panic!("canonical form can only contain ranges"),
+          });
         }
         for cc in cc2.canonical_form().iter() {
-          if cc == CharacterClass::default() { continue }
-          let CharacterClass::Range(a, b) = cc;
-          ranges.insert((*a, *b));
+          if *cc == CharacterClass::default() { continue }
+          ranges.insert(match cc {
+            CharacterClass::Range(a, b) => (*a, *b),
+            _ => panic!("canonical form can only contain ranges"),
+          });
         }
         // ranges are sorted and nonempty, but we still may need to merge them
         let mut previous_range = None;
@@ -334,7 +341,7 @@ impl CharacterClass {
               if a <= b0 {
                 previous_range = Some((a0, cmp::max(b, b0)));
               } else {
-                result = result + (a0-b0);
+                result = result + range(a0, b0);
                 previous_range = Some((a, b));
               }
             }
@@ -361,7 +368,7 @@ impl CharacterClass {
       CharacterClass::Union(cc1, cc2) =>
         CharacterClassIterator{
           cc: self,
-          sub_iters: Some((cc1.iter(), cc2.iter())),
+          sub_iters: Some((cc1.iter().into(), cc2.iter().into())),
           done: false,
         },
       _ => CharacterClassIterator{
@@ -376,7 +383,7 @@ impl CharacterClass {
 // wrap each node with the metadata we need to traverse the leaves in order.
 struct CharacterClassIterator<'a> {
   cc: &'a CharacterClass,
-  sub_iters: Option<(CharacterClassIterator<'a>, CharacterClassIterator<'a>)>,
+  sub_iters: Option<(Box<CharacterClassIterator<'a>>, Box<CharacterClassIterator<'a>>)>,
   done: bool,
 }
 
@@ -388,11 +395,11 @@ impl<'a> Iterator for CharacterClassIterator<'a> {
     if self.done {
       return None
     }
-    match &self.sub_iters {
-      Some((mut l, mut r)) => match l.next() {
+    match self.sub_iters {
+      Some((ref mut l, ref mut r)) => match l.next() {
         Some(cc) => { Some(cc) },
         None => match r.next() {
-          Some(cc) => { Some(cc) }
+          Some(cc) => { Some(cc) },
           None => { self.done = true; None },
         },
       }
@@ -426,13 +433,16 @@ fn range(c1: char, c2: char) -> CharacterClass {
 }
 
 fn char_add(c: char, i: i32) -> char {
-  ((c as i32) + i) as char
+  ((c as i32) + i) as u8 as char
 }
 
 impl MathSet for CharacterClass {
   fn intersect(&self, other: &Self) -> Self {
     // wheeeeee
-    CharacterClass::Negation((CharacterClass::Negation(self.into()) + CharacterClass::Negation(other.into())).into()).canonical_form()
+    CharacterClass::Negation((
+      CharacterClass::Negation(self.clone().into())
+        + CharacterClass::Negation(other.clone().into())
+    ).into()).canonical_form()
   }
 
   fn setminus(&self, other: &Self) -> Self {
