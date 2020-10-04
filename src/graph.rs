@@ -240,7 +240,6 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
     ).collect();
     let mut new_edges = Vec::new();
     for (ids, cc) in set_covering(edges).into_iter() {
-      println!("set_covering: ids: {:?}, cc: {:?}", ids, cc);
       let mut ids = ids.clone();
       bfs_epsilon(&mut ids, &nfa, |cc| *cc == NfaTransition::Empty);
       new_edges.push((cc, ids.clone()));
@@ -251,7 +250,6 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
       id: iter_set.clone(),
       transitions: new_edges,
     };
-    println!("The iter_set is {:?}", iter_set);
     for i in iter_set.iter() {
       if nfa.terminals.contains(i) {
         dfa.terminals.insert(iter_set.clone());
@@ -488,7 +486,6 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
   while !to_process.is_empty() {
     let (s, ids) = to_process.iter().next().unwrap();
     let (s, ids) = (s.clone(), ids.clone());
-    println!("processing set {:?} with ids {:?}", s, ids);
     to_process.remove(&s);
     let mut leftover = s.clone();
     let mut new_to_process = HashMap::new();
@@ -512,9 +509,9 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
   result
 }
 
-impl<T: Eq + Hash> Graph<T, DfaTransition> {
+impl<T: Eq + Hash> Matcher for Graph<T, DfaTransition> {
   /// decide if the given string is part of the language defined by this DFA
-  pub fn match_string(&self, s: &str) -> bool {
+  fn match_string(&self, s: &str) -> bool {
     let mut node = &self.root;
     for c in s.chars().into_iter() {
       let transitions = &self.map.get(node).unwrap().transitions;
@@ -529,5 +526,40 @@ impl<T: Eq + Hash> Graph<T, DfaTransition> {
       if !found_match { return false }
     }
     self.terminals.contains(node)
+  }
+}
+
+pub trait Matcher {
+  fn match_string(&self, s: &str) -> bool;
+}
+
+impl Regex {
+  pub fn matcher(&self) -> Graph<BTreeSet<i32>, DfaTransition> {
+    let nfa: Graph<i32, NfaTransition> = self.into();
+    nfa_to_dfa(nfa)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::convert::TryInto;
+
+  #[test]
+  fn test_simple() {
+    let r: Regex = "a".try_into().unwrap();
+    let m = r.matcher();
+    assert!(m.match_string("a"));
+    assert!(!m.match_string("b"));
+    assert!(!m.match_string("aa"));
+  }
+
+  #[test]
+  fn test_character_class() {
+    let r: Regex = "a([ab]|[ac])c[abc]".try_into().unwrap();
+    let m = r.matcher();
+    assert!(m.match_string("abca"));
+    assert!(!m.match_string("abbc"));
+    assert!(!m.match_string("aaccc"));
   }
 }

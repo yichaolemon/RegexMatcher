@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use crate::graph::nfa_to_dfa;
+use crate::graph::{nfa_to_dfa, Matcher};
 
 #[macro_use] extern crate maplit;
 
