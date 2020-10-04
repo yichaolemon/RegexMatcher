@@ -493,6 +493,8 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
     let mut leftover = s.clone();
     let mut new_to_process = HashMap::new();
     for (s2, ids2) in to_process.iter() {
+      if ids2.is_subset(&ids) { continue }
+      println!("intersecting with {:?} with ids {:?}", s2, ids2);
       let intersection = s.intersect(s2);
       let id_union: BTreeSet<T> = ids.union(ids2).cloned().collect();
       let merged_id_union = match to_process.get(&intersection) {
