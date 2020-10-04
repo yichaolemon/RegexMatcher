@@ -1,9 +1,11 @@
 use crate::parser::{CharacterClass, Regex, Boundary};
 use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
-use std::cmp;
+use std::{cmp, fmt};
 use std::ops::Add;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
+use std::fs::File;
+use std::io::Write;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -54,6 +56,66 @@ fn nfa_with_one_transition(t: NfaTransition) -> Graph<i32, NfaTransition> {
       1 => Node{id: 1, transitions: vec!()},
     },
   }
+}
+
+pub trait EdgeLabel {
+  fn display(&self) -> String;
+}
+
+impl<T: Hash + Eq + EdgeLabel, U: Display> Display for Graph<T, U> {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "digraph Regex {{\n")?;
+    for (label, node) in self.map.iter() {
+      write!(
+        f,
+        "{} [{},{}];\n",
+        label.display(),
+        if self.root == *label { "style=filled,color=\".9 .9 .9\"" } else {"shape=ellipse"},
+        if self.terminals.contains(label) { "peripheries=2" } else {"peripheries=1"},
+      )?;
+      for (transition, dst) in node.transitions.iter() {
+        write!(f, "{} -> {} [label=\"{}\"];\n", label.display(), dst.display(), transition)?;
+      }
+    }
+    write!(f, "}}\n")
+  }
+}
+
+impl Display for NfaTransition {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      NfaTransition::Empty => write!(f, "[]"),
+      NfaTransition::Character(cc) => write!(f, "{}", cc),
+      NfaTransition::Boundary(b) => write!(f, "{}", b),
+    }
+  }
+}
+
+impl Display for DfaTransition {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
+
+impl EdgeLabel for i32 {
+  fn display(&self) -> String {
+    return format!("{}", self)
+  }
+}
+
+impl<T: EdgeLabel> EdgeLabel for BTreeSet<T> {
+  fn display(&self) -> String {
+    let mut s = String::new();
+    for elt in self.iter() {
+      s = format!("{}_{}", s, elt.display());
+    }
+    s
+  }
+}
+
+pub fn write_graph_to_file<T: Hash + Eq + EdgeLabel, U: Display>(f: &str, g: &Graph<T, U>) {
+  let mut file = File::create(f).unwrap();
+  write!(&mut file, "{}", g).unwrap();
 }
 
 impl From<&Regex> for Graph<i32, NfaTransition> {
@@ -234,7 +296,7 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
         .filter_map(|(cc, j)|
           match cc {
             NfaTransition::Empty => None,
-            NfaTransition::Character(cc) => Some((j.clone(), DfaTransition(cc.clone()))),
+            NfaTransition::Character(cc) => Some((j.clone(), DfaTransition(cc.canonical_form()))),
             NfaTransition::Boundary(_) => unimplemented!(),
           }
         ).collect::<Vec<(T, DfaTransition)>>()
@@ -492,7 +554,6 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
     let mut new_to_process = HashMap::new();
     for (s2, ids2) in to_process.iter() {
       if ids2.is_subset(&ids) { continue }
-      println!("intersecting with {:?} with ids {:?}", s2, ids2);
       let intersection = s.intersect(s2);
       let id_union: BTreeSet<T> = ids.union(ids2).cloned().collect();
       let merged_id_union = match to_process.get(&intersection) {
@@ -510,7 +571,7 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
   result
 }
 
-impl<T: Eq + Hash> Matcher for Graph<T, DfaTransition> {
+impl<T: Eq + Hash + Debug> Matcher for Graph<T, DfaTransition> {
   /// decide if the given string is part of the language defined by this DFA
   fn match_string(&self, s: &str) -> bool {
     let mut node = &self.root;
@@ -519,12 +580,14 @@ impl<T: Eq + Hash> Matcher for Graph<T, DfaTransition> {
       let mut found_match = false;
       for (transition, dst) in transitions {
         if transition.0.matches_char(c) {
+          if found_match {
+            panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
+          }
           node = dst;
           found_match = true;
-          break
         }
       }
-      if !found_match { return false }
+      if !found_match {return false }
     }
     self.terminals.contains(node)
   }
@@ -537,7 +600,10 @@ pub trait Matcher {
 impl Regex {
   pub fn matcher(&self) -> Graph<BTreeSet<i32>, DfaTransition> {
     let nfa: Graph<i32, NfaTransition> = self.into();
-    nfa_to_dfa(nfa)
+    println!("The nfa is {:?}", nfa);
+    let dfa = nfa_to_dfa(nfa);
+    println!("The dfa is {:?}", dfa);
+    dfa
   }
 }
 
@@ -562,5 +628,19 @@ mod tests {
     assert!(m.match_string("abca"));
     assert!(!m.match_string("abbc"));
     assert!(!m.match_string("aaccc"));
+  }
+
+  #[test]
+  fn test_any() {
+    let r: Regex = "[0-a]+(\\d)*[abc|c]+".try_into().unwrap();
+    let m = r.matcher();
+    assert!(m.match_string("90736464ZLKHAHFUU``223|"));
+  }
+
+  #[test]
+  fn test_stuff() {
+    let r: Regex = "[0-a]+(\\d)*[abc|c]+".try_into().unwrap();
+    let m = r.matcher();
+    assert!(m.match_string("1|"));
   }
 }
