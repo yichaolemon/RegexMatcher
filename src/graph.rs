@@ -503,6 +503,22 @@ fn set_covering<T: Ord + Clone + Hash, S: MathSet>(sets: HashMap<T, S>) -> HashM
   result
 }
 
-impl<T> Graph<T, DfaTransition> {
-
+impl<T: Eq + Hash> Graph<T, DfaTransition> {
+  /// decide if the given string is part of the language defined by this DFA
+  pub fn match_string(&self, s: &str) -> bool {
+    let mut node = &self.root;
+    for c in s.chars().into_iter() {
+      let transitions = &self.map.get(node).unwrap().transitions;
+      let mut found_match = false;
+      for (transition, dst) in transitions {
+        if transition.0.matches_char(c) {
+          node = dst;
+          found_match = true;
+          break
+        }
+      }
+      if !found_match { return false }
+    }
+    self.terminals.contains(node)
+  }
 }
