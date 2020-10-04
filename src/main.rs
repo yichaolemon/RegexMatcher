@@ -7,7 +7,6 @@ mod parser;
 mod graph;
 
 fn main() {
-  // let regex: parser::Regex = "a?([bc]|[ac])".try_into().unwrap();
   let regex: parser::Regex = "a?([ab]|[ac])".try_into().unwrap();
   println!("regex is {:?}", regex);
   let nfa: graph::Graph<i32, graph::NfaTransition> = (&regex).into();

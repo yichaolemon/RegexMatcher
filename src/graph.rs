@@ -220,7 +220,6 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
 
   let mut dfa = Graph::default();
 
-  // TODO: push onto stack
   while !stack.is_empty() {
     let iter_set = stack.pop_front().unwrap();
     // merge all the nodes that are \epsilon away
@@ -315,7 +314,7 @@ impl CharacterClass {
         }
         match end_of_last_range {
           Some(e) => if e < '\x7F' {
-            result = result + range(e, '\x7F');
+            result = result + range(char_add(e, 1), '\x7F');
           }
           None => {},
         }
@@ -345,7 +344,7 @@ impl CharacterClass {
           match previous_range {
             None => { previous_range = Some((a, b)) }
             Some((a0, b0)) => {
-              if a <= b0 {
+              if a <= char_add(b0, 1) {
                 previous_range = Some((a0, cmp::max(b, b0)));
               } else {
                 result = result + range(a0, b0);
@@ -476,7 +475,7 @@ impl MathSet for DfaTransition {
 }
 
 // Given some mathematical sets (given as id->set), find all intersections
-fn set_covering<T: Ord + Clone + Hash, S: MathSet>(sets: HashMap<T, S>) -> HashMap<BTreeSet<T>, S> {
+fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap<T, S>) -> HashMap<BTreeSet<T>, S> {
   let mut result = HashMap::new();
   let mut to_process = HashMap::new();
 
@@ -489,6 +488,7 @@ fn set_covering<T: Ord + Clone + Hash, S: MathSet>(sets: HashMap<T, S>) -> HashM
   while !to_process.is_empty() {
     let (s, ids) = to_process.iter().next().unwrap();
     let (s, ids) = (s.clone(), ids.clone());
+    println!("processing set {:?} with ids {:?}", s, ids);
     to_process.remove(&s);
     let mut leftover = s.clone();
     let mut new_to_process = HashMap::new();
