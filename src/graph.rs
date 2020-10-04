@@ -125,10 +125,11 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       );
       left_nfa.map.extend(right_nfa.map);
       left_nfa.terminals.extend(right_nfa.terminals);
+      let tmp_left_root = left_nfa.root;
       left_nfa.root = left_nfa.map.len() as i32;
       left_nfa.map.insert(left_nfa.root, Node{
         id: left_nfa.root,
-        transitions: vec!((NfaTransition::Empty, left_nfa.root), (NfaTransition::Empty, right_nfa.root)),
+        transitions: vec!((NfaTransition::Empty, tmp_left_root), (NfaTransition::Empty, right_nfa.root)),
       });
       left_nfa
     },
