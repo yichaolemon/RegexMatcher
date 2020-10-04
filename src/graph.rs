@@ -213,6 +213,7 @@ fn bfs_epsilon<T: Hash + Ord + Clone, U, F: FnMut(&U) -> bool>(
 pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
   let mut iter_set: BTreeSet<T> = BTreeSet::new();
   iter_set.insert(nfa.root.clone());
+  bfs_epsilon(&mut iter_set, &nfa, |cc| *cc == NfaTransition::Empty);
   let mut stack = VecDeque::new();
   stack.push_back(iter_set);
   let mut boo = true;
@@ -221,9 +222,8 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
 
   // TODO: push onto stack
   while !stack.is_empty() {
-    let mut iter_set = stack.pop_front().unwrap();
+    let iter_set = stack.pop_front().unwrap();
     // merge all the nodes that are \epsilon away
-    bfs_epsilon(&mut iter_set, &nfa, |cc| *cc == NfaTransition::Empty);
     if boo { dfa.root = iter_set.clone(); boo = false; }
     if dfa.map.contains_key(&iter_set) {
       continue
@@ -241,6 +241,8 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
     ).collect();
     let mut new_edges = Vec::new();
     for (ids, cc) in set_covering(edges).into_iter() {
+      let mut ids = ids.clone();
+      bfs_epsilon(&mut ids, &nfa, |cc| *cc == NfaTransition::Empty);
       new_edges.push((cc, ids.clone()));
       // push ids onto the stack
       stack.push_back(ids)
