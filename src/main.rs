@@ -8,7 +8,7 @@ mod graph;
 
 fn main() {
   // let regex: parser::Regex = "a?([bc]|[ac])".try_into().unwrap();
-  let regex: parser::Regex = ".*".try_into().unwrap();
+  let regex: parser::Regex = "a?([ab]|[ac])".try_into().unwrap();
   println!("regex is {:?}", regex);
   let nfa: graph::Graph<i32, graph::NfaTransition> = (&regex).into();
   println!("nfa is {:?}", nfa);
@@ -16,6 +16,7 @@ fn main() {
   println!("example is {}", example.unwrap());
   let dfa = nfa_to_dfa(nfa);
   println!("dfa is {:?}", dfa);
-  let is_match = dfa.match_string("a f 1 3fdas");
-  println!("Does dfa match `a f 1 3fdas`? {}", is_match)
+  let s = "abcdefg";
+  let is_match = dfa.match_string(s);
+  println!("Does dfa match `{}`? {}", s, is_match)
 }

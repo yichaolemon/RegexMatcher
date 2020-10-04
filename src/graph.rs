@@ -231,16 +231,17 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
     // construct the new edges
     let edges: HashMap<T, DfaTransition> = iter_set.iter().flat_map(
       |i| nfa.map.get(i).unwrap().transitions.iter()
-        .filter_map(|(cc, j)| if iter_set.contains(j) { None } else {
+        .filter_map(|(cc, j)|
           match cc {
             NfaTransition::Empty => None,
             NfaTransition::Character(cc) => Some((j.clone(), DfaTransition(cc.clone()))),
             NfaTransition::Boundary(_) => unimplemented!(),
           }
-        }).collect::<Vec<(T, DfaTransition)>>()
+        ).collect::<Vec<(T, DfaTransition)>>()
     ).collect();
     let mut new_edges = Vec::new();
     for (ids, cc) in set_covering(edges).into_iter() {
+      println!("set_covering: ids: {:?}, cc: {:?}", ids, cc);
       let mut ids = ids.clone();
       bfs_epsilon(&mut ids, &nfa, |cc| *cc == NfaTransition::Empty);
       new_edges.push((cc, ids.clone()));
