@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
 use std::cmp;
 use crate::graph::NfaTransition::Character;
+use std::ops::{Add, Sub};
+use crate::parser::CharacterClass::Char;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -275,6 +277,112 @@ impl CharacterClass {
       CharacterClass::Union(cc1, cc2) => cc1.matches_char(c) || cc2.matches_char(c),
       CharacterClass::Range(a, b) => c >= *a && c <= *b,
     }
+  }
+
+  // The canonical form of any character class is a left-associative union of ranges.
+  // Special cases: empty character class is Range('b', 'a').
+  // All characters are ascii, from '\x00' to '\x7F'.
+  pub fn canonical_form(&self) -> CharacterClass {
+    match self {
+      CharacterClass::Char(c) => (*c).into(),
+      CharacterClass::Any => '\x00'-'\x7F',
+      CharacterClass::Word => ('a'-'z')+('A'-'Z')+('0'-'9')+'_'.into(),
+      CharacterClass::Whitespace => ' '.into()+'\t'.into()+'\n'.into()+'\r'.into(),
+      CharacterClass::Digit => '0'-'9',
+      CharacterClass::Negation(cc) => {
+        let mut ranges = BTreeSet::new();
+        for cc in cc.canonical_form().iter() {
+          let CharacterClass::Range(a, b) = cc;
+          ranges.insert((*a, *b));
+        }
+        let mut end_of_previous_range = '\x00'; // exclusive
+        let mut result = None;
+        for (a, b) in ranges.into_iter() {
+          if a < end_of_previous_range {
+
+          }
+          match result {
+            None => { result = Some(end_of_previous_range-)}
+          }
+        }
+      }
+      CharacterClass::Union(cc1, cc2) => {
+        let mut result = cc1.canonical_form();
+        // must be left associative
+        for cc in cc2.canonical_form().iter() {
+          result = result + cc.clone();
+        }
+        result
+      }
+      CharacterClass::Range(_, _) => self.clone(),
+    }
+  }
+
+  fn iter(&self) -> CharacterClassIterator {
+    match self {
+      CharacterClass::Union(cc1, cc2) =>
+        CharacterClassIterator{
+          cc: self,
+          sub_iters: Some((cc1.iter(), cc2.iter())),
+          done: false,
+        },
+      _ => CharacterClassIterator{
+        cc: self,
+        sub_iters: None,
+        done: false,
+      },
+    }
+  }
+}
+
+// wrap each node with the metadata we need to traverse the leaves in order.
+struct CharacterClassIterator<'a> {
+  cc: &'a CharacterClass,
+  sub_iters: Option<(CharacterClassIterator<'a>, CharacterClassIterator<'a>)>,
+  done: bool,
+}
+
+// iterate over unioned items in order
+impl<'a> Iterator for CharacterClassIterator<'a> {
+  type Item = &'a CharacterClass;
+
+  fn next(&mut self) -> Option<Self::Item> {
+    if self.done {
+      return None
+    }
+    match &self.sub_iters {
+      Some((mut l, mut r)) => match l.next() {
+        Some(cc) => { Some(cc) },
+        None => match r.next() {
+          Some(cc) => { Some(cc) }
+          None => { self.done = true; None },
+        },
+      }
+      None => { self.done = true; Some(self.cc) },
+    }
+  }
+}
+
+impl From<char> for CharacterClass {
+  fn from(c: char) -> Self {
+    CharacterClass::Range(c, c)
+  }
+}
+
+impl Add<CharacterClass> for CharacterClass {
+  type Output = CharacterClass;
+
+  fn add(self, rhs: CharacterClass) -> Self::Output {
+    CharacterClass::Union(self.into(), rhs.into())
+  }
+}
+
+// lolz
+impl Sub<char> for char {
+  type Output = CharacterClass;
+
+  fn sub(self, rhs: char) -> Self::Output {
+    CharacterClass::Range(self, rhs)
   }
 }
 
