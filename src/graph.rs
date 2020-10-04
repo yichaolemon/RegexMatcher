@@ -1,6 +1,8 @@
 use crate::parser::{CharacterClass, Regex, Boundary};
 use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
+use std::cmp;
+use crate::graph::NfaTransition::Character;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -298,13 +300,42 @@ impl MathSet for CharacterClass {
         CharacterClass::Whitespace => CharacterClass::default(),
         CharacterClass::Digit => self.clone(),
         _ => other.intersect(self),
-      }
+      },
       CharacterClass::Negation(cc) =>
-        // de morgan's law. intersection is inverse of union of inverses.
-        CharacterClass::Negation(CharacterClass::Union(CharacterClass::Negation(other.into()).into(), cc.clone()).into()),
+        if cc.is_empty() {
+          other.clone()
+        } else {
+          // de morgan's law. intersection is inverse of union of inverses.
+          CharacterClass::Negation(CharacterClass::Union(CharacterClass::Negation(other.into()).into(), cc.clone()).into())
+        },
       CharacterClass::Union(cc1, cc2) =>
         CharacterClass::Union(cc1.intersect(other).into(), cc2.intersect(other).into()),
-      CharacterClass::Range(a, b) => unimplemented!(),
+      CharacterClass::Range(a, b) =>
+        if (*a <= *b) {
+          match other {
+            CharacterClass::Any => self.clone(),
+            CharacterClass::Digit => {
+              let mut new_range = CharacterClass::default();
+              if '0' <= *a && *a <= '9' {
+                new_range = CharacterClass::Range(a.clone(), cmp::min(*b, '9'));
+              } else if '0' <= *b && *b <= '9' {
+                new_range = CharacterClass::Range(cmp::max(*a, '0'), b.clone());
+              }
+              if new_range == CharacterClass::Range('0', '9') { CharacterClass::Digit } else { new_range }
+            },
+            CharacterClass::Char(c) =>
+              if *a <= *c && *c <= *b { other.clone() } else { CharacterClass::default() },
+            CharacterClass::Whitespace =>
+              if *a <= ' ' && ' ' <= *b || *a <= '\n' && '\n' <= *b || *a <= '\r' && '\r' <= *b
+                || *a <= '\t' && '\t' <= *b {
+                CharacterClass::Whitespace
+              },
+            CharacterClass::Word => {}
+            CharacterClass::Negation(_) => {}
+            CharacterClass::Union(_, _) => {}
+            CharacterClass::Range(_, _) => {}
+          }
+        }
     }
   }
 
