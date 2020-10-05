@@ -677,4 +677,17 @@ mod tests {
     assert!(m.match_string("00000."));
     m.print_to_file("out/any.dot");
   }
+
+  #[test]
+  fn test_stanford_loop() {
+    // example from stanford pset that can cause a loop if you're not careful.
+    let r: Regex = "(x?)*y".try_into().unwrap();
+    let m = r.matcher();
+    assert!(m.match_string("xxxxxy"));
+    assert!(!m.match_string("x"));
+    assert!(!m.match_string("xxxxxxxx"));
+    assert!(!m.match_string("xxxyx"));
+    assert!(m.match_string("y"));
+    m.print_to_file("out/loop.dot");
+  }
 }
