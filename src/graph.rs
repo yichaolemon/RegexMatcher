@@ -596,7 +596,7 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
   result
 }
 
-impl<T: Eq + Hash + Debug> Matcher for Graph<T, DfaTransition> {
+impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
   /// decide if the given string is part of the language defined by this DFA
   fn match_string(&self, s: &str) -> bool {
     let mut node = &self.root;
@@ -616,10 +616,15 @@ impl<T: Eq + Hash + Debug> Matcher for Graph<T, DfaTransition> {
     }
     self.terminals.contains(node)
   }
+
+  fn print_to_file(&self, f: &str) {
+    write_graph_to_file(f, self);
+  }
 }
 
 pub trait Matcher {
   fn match_string(&self, s: &str) -> bool;
+  fn print_to_file(&self, f: &str);
 }
 
 impl Regex {
@@ -668,6 +673,8 @@ mod tests {
     assert!(m.match_string("-19."));
     assert!(!m.match_string("a9."));
     assert!(!m.match_string("00000"));
+    assert!(!m.match_string("x012-90."));
     assert!(m.match_string("00000."));
+    m.print_to_file("out/any.dot");
   }
 }
