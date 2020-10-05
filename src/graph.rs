@@ -28,10 +28,16 @@ pub enum NfaTransition {
   Boundary(Boundary),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DfaTransition {
   Character(CharacterClass),
   Boundary(Boundary),
+}
+
+impl Default for DfaTransition {
+  fn default() -> Self {
+    DfaTransition::Character(CharacterClass::default())
+  }
 }
 
 /// reindexing the nodes when merging two graphs
@@ -96,7 +102,12 @@ impl Display for NfaTransition {
 
 impl Display for DfaTransition {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", self.0)
+    match self {
+      DfaTransition::Character(cc) => {
+        write!(f, "{}", cc)
+      }
+      DfaTransition::Boundary(_) => unimplemented!()
+    }
   }
 }
 
@@ -158,7 +169,12 @@ impl Transition for NfaTransition {
 
 impl Transition for DfaTransition {
   fn example(&self, s: &String) -> String {
-    format!("{}{}", s, self.0.example())
+    match self {
+      DfaTransition::Character(cc) =>
+        format!("{}{}", s, cc.example()),
+      DfaTransition::Boundary(b) =>
+        unimplemented!()
+    }
   }
 }
 

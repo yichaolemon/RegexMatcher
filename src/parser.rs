@@ -80,17 +80,15 @@ impl Boundary {
       Boundary::Any => true,
       Boundary::Word => match (before, after) {
         (None, None) => false,
-        (Some(c1), Some(c2)) => {
+        (Some(c1), Some(c2)) =>
           w.matches_char(c1) && !w.matches_char(c2)
-            || !w.matches_char(c1) && w.matches_char(c2)
-        },
+            || !w.matches_char(c1) && w.matches_char(c2),
         (None, Some(c)) => w.matches_char(c),
         (Some(c), None) => w.matches_char(c),
       },
       Boundary::Start => before == None,
       Boundary::End => after == None,
     }
-    false
   }
 }
 
