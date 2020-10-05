@@ -330,6 +330,9 @@ trait MathSet: Hash + Eq + Clone {
   fn is_empty(&self) -> bool;
 }
 
+const MIN_CHAR: char = '\x00';
+const MAX_CHAR: char = '\x7F';
+
 impl CharacterClass {
   pub fn matches_char(&self, c: char) -> bool {
     match self {
@@ -355,9 +358,13 @@ impl CharacterClass {
       CharacterClass::Whitespace => range(' ', ' ')+'\t'.into()+'\n'.into()+'\r'.into(),
       CharacterClass::Digit => range('0', '9'),
       CharacterClass::Negation(cc) => {
+        let cc = cc.canonical_form();
+        if cc.is_empty() {
+          return CharacterClass::Range(MIN_CHAR, MAX_CHAR);
+        }
         let mut result = CharacterClass::default();
         let mut end_of_last_range = None;
-        for cc in cc.canonical_form().iter() {
+        for cc in cc.iter() {
           if *cc == CharacterClass::default() { continue }
           let (a, b) = match cc {
             CharacterClass::Range(a, b) => (*a, *b),
@@ -367,15 +374,15 @@ impl CharacterClass {
             Some(e) => {
               result = result + range(char_add(e, 1), char_add(a, -1));
             },
-            None => if a > '\x00' {
-              result = result + range('\x00', char_add(a, -1));
+            None => if a > MIN_CHAR {
+              result = result + range(MIN_CHAR, char_add(a, -1));
             },
           }
           end_of_last_range = Some(b);
         }
         match end_of_last_range {
-          Some(e) => if e < '\x7F' {
-            result = result + range(char_add(e, 1), '\x7F');
+          Some(e) => if e < MAX_CHAR {
+            result = result + range(char_add(e, 1), MAX_CHAR);
           }
           None => {},
         }
@@ -521,6 +528,18 @@ impl MathSet for CharacterClass {
   }
 }
 
+#[cfg(test)]
+mod intersect_tests {
+  use super::*;
+
+  #[test]
+  fn test_empty_intersect() {
+    let l = CharacterClass::Range('0', 'a');
+    let r = CharacterClass::default();
+    assert_eq!(l.intersect(&r), CharacterClass::default());
+  }
+}
+
 impl MathSet for DfaTransition {
   fn intersect(&self, other: &Self) -> Self {
     return DfaTransition(self.0.intersect(&(*other).0));
@@ -555,12 +574,18 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
     for (s2, ids2) in to_process.iter() {
       if ids2.is_subset(&ids) { continue }
       let intersection = s.intersect(s2);
+      if intersection.is_empty() {
+        continue
+      }
       let id_union: BTreeSet<T> = ids.union(ids2).cloned().collect();
       let merged_id_union = match to_process.get(&intersection) {
         Some(ids3) => id_union.union(ids3).cloned().collect(),
         None => id_union,
       };
       new_to_process.insert(intersection, merged_id_union);
+      leftover = leftover.setminus(s2);
+    }
+    for (_, s2) in result.iter() {
       leftover = leftover.setminus(s2);
     }
     to_process.extend(new_to_process);
@@ -600,9 +625,7 @@ pub trait Matcher {
 impl Regex {
   pub fn matcher(&self) -> Graph<BTreeSet<i32>, DfaTransition> {
     let nfa: Graph<i32, NfaTransition> = self.into();
-    println!("The nfa is {:?}", nfa);
     let dfa = nfa_to_dfa(nfa);
-    println!("The dfa is {:?}", dfa);
     dfa
   }
 }
@@ -631,16 +654,20 @@ mod tests {
   }
 
   #[test]
-  fn test_any() {
+  fn test_character_class_intersection() {
     let r: Regex = "[0-a]+(\\d)*[abc|c]+".try_into().unwrap();
     let m = r.matcher();
     assert!(m.match_string("90736464ZLKHAHFUU``223|"));
   }
 
   #[test]
-  fn test_stuff() {
-    let r: Regex = "[0-a]+(\\d)*[abc|c]+".try_into().unwrap();
+  fn test_any() {
+    let r: Regex = ".[-a0-8]+[0-9]?[.]+".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("1|"));
+    assert!(m.match_string("a-123..."));
+    assert!(m.match_string("-19."));
+    assert!(!m.match_string("a9."));
+    assert!(!m.match_string("00000"));
+    assert!(m.match_string("00000."));
   }
 }
