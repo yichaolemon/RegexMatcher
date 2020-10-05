@@ -2,6 +2,7 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::fmt::Formatter;
 use std::ops::Deref;
+use crate::graph::DfaTransition::Character;
 
 const SPECIAL_CHARS: &str = "[\\^$.|?*+()";
 
@@ -69,6 +70,27 @@ impl TryFrom<&str> for Regex {
       true => Ok(regex),
       false => Err("Invalid regex expression".into())
     }
+  }
+}
+
+impl Boundary {
+  pub fn matches(&self, before: Option<char>, after: Option<char>) -> bool {
+    let w = CharacterClass::Word;
+    match self {
+      Boundary::Any => true,
+      Boundary::Word => match (before, after) {
+        (None, None) => false,
+        (Some(c1), Some(c2)) => {
+          w.matches_char(c1) && !w.matches_char(c2)
+            || !w.matches_char(c1) && w.matches_char(c2)
+        },
+        (None, Some(c)) => w.matches_char(c),
+        (Some(c), None) => w.matches_char(c),
+      },
+      Boundary::Start => before == None,
+      Boundary::End => after == None,
+    }
+    false
   }
 }
 

@@ -29,7 +29,10 @@ pub enum NfaTransition {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
-pub struct DfaTransition(CharacterClass);
+pub enum DfaTransition {
+  Character(CharacterClass),
+  Boundary(Boundary),
+}
 
 /// reindexing the nodes when merging two graphs
 fn graph_reindex<T: Hash + Eq, U, F: FnMut(&T) -> T>(graph: Graph<T, U>, mut f: F) -> Graph<T, U> {
@@ -295,9 +298,12 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
       |i| nfa.map.get(i).unwrap().transitions.iter()
         .filter_map(|(cc, j)|
           match cc {
-            NfaTransition::Empty => None,
-            NfaTransition::Character(cc) => Some((j.clone(), DfaTransition(cc.canonical_form()))),
-            NfaTransition::Boundary(_) => unimplemented!(),
+            NfaTransition::Empty =>
+              None,
+            NfaTransition::Character(cc) =>
+              Some((j.clone(), DfaTransition::Character(cc.canonical_form()))),
+            NfaTransition::Boundary(b) =>
+              unimplemented!(),
           }
         ).collect::<Vec<(T, DfaTransition)>>()
     ).collect();
@@ -542,15 +548,26 @@ mod intersect_tests {
 
 impl MathSet for DfaTransition {
   fn intersect(&self, other: &Self) -> Self {
-    return DfaTransition(self.0.intersect(&(*other).0));
+    match (self, other) {
+      (DfaTransition::Character(cc1), DfaTransition::Character(cc2)) =>
+        DfaTransition::Character(cc1.intersect(cc2)),
+      (_, _) => panic!("Doesn't make sense to intersect boundary and character in dfa transition"),
+    }
   }
 
   fn setminus(&self, other: &Self) -> Self {
-    return DfaTransition(self.0.setminus(&(*other).0));
+    match (self, other) {
+      (DfaTransition::Character(cc1), DfaTransition::Character(cc2)) =>
+        DfaTransition::Character(cc1.setminus(cc2)),
+      (_, _) => panic!("Doesn't make sense to setminus boundary and character in dfa transition"),
+    }
   }
 
   fn is_empty(&self) -> bool {
-    return self.0.is_empty()
+    match self {
+      DfaTransition::Character(cc) => cc.is_empty(),
+      DfaTransition::Boundary(_) => false, // doesn't really make sense, since boundary doens't consume chars
+    }
   }
 }
 
@@ -600,20 +617,42 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
   /// decide if the given string is part of the language defined by this DFA
   fn match_string(&self, s: &str) -> bool {
     let mut node = &self.root;
-    for c in s.chars().into_iter() {
+    let c_list: Vec<char> = s.chars().into_iter().collect();
+    let mut i = 0;
+
+    while i < c_list.len() {
+      let c = c_list[i];
       let transitions = &self.map.get(node).unwrap().transitions;
       let mut found_match = false;
+
       for (transition, dst) in transitions {
-        if transition.0.matches_char(c) {
-          if found_match {
-            panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
+        match transition {
+          DfaTransition::Character(cc) => {
+            if cc.matches_char(c) {
+              if found_match {
+                panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
+              }
+              node = dst;
+              found_match = true;
+              i += 1;
+            }
+          },
+          DfaTransition::Boundary(b) => {
+            let c_before = c_list.get(i-1).copied();
+            let c_after = Some(c);
+            if b.matches(c_before, c_after) {
+              if found_match {
+                panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
+              }
+              node = dst;
+              found_match = true;
+            }
           }
-          node = dst;
-          found_match = true;
         }
       }
-      if !found_match {return false }
+      if !found_match { return false }
     }
+
     self.terminals.contains(node)
   }
 
