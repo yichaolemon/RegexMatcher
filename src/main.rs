@@ -8,19 +8,19 @@ mod parser;
 mod graph;
 
 fn main() {
-  let r = "[0-a]+(\\d)*[abc|c]+";
+  let r = ".*\\bcat\\b.*";
   let regex: parser::Regex = r.try_into().unwrap();
   println!("regex is {:?}", regex);
   let nfa: graph::Graph<i32, graph::NfaTransition> = (&regex).into();
   println!("nfa is {:?}", nfa);
   fs::create_dir_all("out").unwrap();
   write_graph_to_file("out/nfa.dot", &nfa);
-  let example = nfa.example();
-  println!("example is {}", example.unwrap());
+  // let example = nfa.example();
+  // println!("example is {}", example.unwrap());
   let dfa = nfa_to_dfa(nfa);
   write_graph_to_file("out/dfa.dot", &dfa);
   println!("dfa is {:?}", dfa);
-  let s = "90736464ZLKHAHFUU``223|";
+  let s = "hello cat!";
   let is_match = dfa.match_string(s);
   println!("Does {} match `{}`? {}", s, r, is_match)
 

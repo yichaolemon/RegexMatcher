@@ -104,11 +104,9 @@ impl Display for NfaTransition {
 impl Display for DfaTransition {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     match self {
-      DfaTransition::Character(cc) => {
-        write!(f, "{}", cc)
-      }
-      DfaTransition::Boundary(_) => unimplemented!(),
-      DfaTransition::NegBoundary(_) => unimplemented!(),
+      DfaTransition::Character(cc) => write!(f, "{}", cc),
+      DfaTransition::Boundary(b) => write!(f, "{}", b),
+      DfaTransition::NegBoundary(b) => write!(f, "~{}", b),
     }
   }
 }
@@ -753,12 +751,16 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
             } else { false }
           },
           DfaTransition::Boundary(b) => {
-            let c_before = c_list.get(i-1).copied();
+            let c_before = if i == 0 { None } else {
+              c_list.get(i-1).copied()
+            };
             let c_after = Some(c);
             b.matches(c_before, c_after)
           }
           DfaTransition::NegBoundary(b) => {
-            let c_before = c_list.get(i-1).copied();
+            let c_before = if i == 0 { None } else {
+              c_list.get(i-1).copied()
+            };
             let c_after = Some(c);
             !b.matches(c_before, c_after)
           }
