@@ -6,6 +6,7 @@ use std::ops::{Add, Bound};
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::Write;
+use std::intrinsics::unreachable;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -271,8 +272,8 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
 }
 
 /// find all nodes in the graph that are \epsilon away from given node set, mutate in place
-fn bfs_epsilon<T: Hash + Ord + Clone, U, F: FnMut(&U) -> bool>(
-  nodes: &mut BTreeSet<T>, graph: &Graph<T, U>, mut f: F
+fn bfs_epsilon<T: Hash + Ord + Clone, U, V: From<&T> + Clone, F: FnMut(&U) -> bool>(
+  nodes: &mut BTreeSet<V>, graph: &Graph<T, U>, mut f: F,
 ) {
   let mut queue = VecDeque::new();
   for node in nodes.iter() {
@@ -284,64 +285,116 @@ fn bfs_epsilon<T: Hash + Ord + Clone, U, F: FnMut(&U) -> bool>(
 
   while !queue.is_empty() {
     let i = queue.pop_front().unwrap();
-    let transitions = graph.map.get(&i).unwrap().transitions.iter()
+    let epsilon_dests = graph.map.get(&i).unwrap().transitions.iter()
       .filter_map(|(cc, j)| if f(cc) {Some(j)} else {None});
-    for j in transitions {
-      if !nodes.contains(j) {
-        queue.push_back(j.clone());
-        nodes.insert(j.clone());
+    for j in epsilon_dests {
+      let v: V = j.into();
+      if !nodes.contains(v) {
+        queue.push_back(v.clone());
+        nodes.insert(v.clone());
       }
     }
   }
 }
 
+// In the DFA each node is identified by a set of these DfaIdentifiers.
+// The DFA node should be thought of as being on any of the corresponding NFA nodes,
+// with all Bound and InverseBound conditions satisfied.
+#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+pub enum DfaIdentifier<T, B> {
+  Plain(T),
+  Bound(B),
+  InverseBound(B),
+}
+
+type DfaNode<T, B> = BTreeSet<DfaIdentifier<T, B>>;
+
 /// given a non-deterministic finite automata, construct its equivalent deterministic finite automata
-pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
-  let mut iter_set: BTreeSet<T> = BTreeSet::new();
-  iter_set.insert(nfa.root.clone());
-  bfs_epsilon(&mut iter_set, &nfa,
-    |cc| *cc == NfaTransition::Empty || *cc == NfaTransition::Boundary(Boundary::Any));
+pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>)
+  -> Graph<DfaNode<T, Boundary>, DfaTransition> {
+  let mut iter_set = BTreeSet::new();
+  iter_set.insert(DfaIdentifier::Plain(nfa.root.clone()));
+  bfs_epsilon(&mut iter_set, &nfa, |cc| *cc == NfaTransition::Empty);
   let mut stack = VecDeque::new();
   stack.push_back(iter_set);
-  let mut boo = true;
+  let mut first = true;
 
   let mut dfa = Graph::default();
 
   while !stack.is_empty() {
     let iter_set = stack.pop_front().unwrap();
     // merge all the nodes that are \epsilon away
-    if boo { dfa.root = iter_set.clone(); boo = false; }
+    if first { dfa.root = iter_set.clone(); first = false; }
     if dfa.map.contains_key(&iter_set) {
       continue
     }
-    // construct the new edges
-    let edges: HashMap<T, DfaTransition> = iter_set.iter().flat_map(
-      |i| nfa.map.get(i).unwrap().transitions.iter()
-        .filter_map(|(cc, j)|
-          match cc {
-            NfaTransition::Empty =>
-              None,
-            NfaTransition::Character(cc) =>
-              Some((j.clone(), DfaTransition::Character(cc.canonical_form()))),
-            NfaTransition::Boundary(Boundary::Any) =>
-              panic!("bfs_epsilon should have taken care of all the any boundaries!"),
-            NfaTransition::Boundary(Boundary::Word) => {DfaTransition::Boundary(Boundary::Word)},
-            NfaTransition::Boundary(Boundary::Start) => {DfaTransition::Boundary(Boundary::Start)},
-            NfaTransition::Boundary(Boundary::End) => {DfaTransition::Boundary(Boundary::End)},
-          }
-        ).collect::<Vec<(T, DfaTransition)>>()
-    ).collect();
-    // process the boundaries
-
+    // find the existing edges so we can construct new edges.
     let mut new_edges = Vec::new();
-    for (ids, cc) in set_covering(edges).into_iter() {
-      let mut ids = ids.clone();
-      bfs_epsilon(&mut ids, &nfa,
-        |cc| *cc == NfaTransition::Empty || *cc == NfaTransition::Boundary(Boundary::Any));
-      new_edges.push((cc, ids.clone()));
-      // push ids onto the stack
-      stack.push_back(ids)
+
+    // if there are any boundary edges, split the current node.
+    // TODO: this doesn't have to be a flatmap, since we only want one it can be a loop.
+    let boundary_edges: HashSet<Boundary> = iter_set.iter().flat_map(
+      |i| match i {
+        DfaIdentifier::Plain(i) =>
+          nfa.map.get(i).unwrap().transitions.iter()
+            .filter_map(|(cc, _)|
+              match cc {
+                NfaTransition::Boundary(b) =>
+                  if iter_set.contains(&DfaIdentifier::Bound(b.clone())) || iter_set.contains(&DfaIdentifier::InverseBound(b.clone())) {
+                    None
+                  } else {
+                    Some(b.clone())
+                  },
+                _ => None,
+              }
+            ).collect::<Vec<Boundary>>(),
+        _ => vec!(),
+      }
+    ).collect();
+
+    if len(boundary_edges) > 0 {
+      // split the node to make a deterministic choice based on the boundary.
+      // TODO: short circuit Any boundary.
+      let b = boundary_edges.into_iter().next().unwrap();
+      let mut iter_set_bound = iter_set.clone();
+      iter_set_bound.insert(DfaIdentifier::Bound(b.clone()));
+      bfs_epsilon(&mut iter_set_bound, &nfa, |nfa_transition| match nfa_transition {
+        NfaTransition::Boundary(b_transition) => *b_transition == b,
+        _ => false,
+      });
+      new_edges.push((DfaTransition::Boundary(b.clone()), iter_set_bound.clone()));
+      stack.push_back(iter_set_bound);
+      let mut iter_set_bound_inv = iter_set.clone();
+      iter_set_bound_inv.insert(DfaIdentifier::InverseBound(b));
+      new_edges.push((DfaTransition::NegBoundary(b.clone()), iter_set_bound_inv.clone()));
+      stack.push_back(iter_set_bound_inv);
+    } else {
+      // no boundary edges. find edges by taking a set covering of character edges.
+      let character_edges: HashMap<DfaIdentifier<T, Boundary>, DfaTransition> = iter_set.iter().flat_map(
+        |i| match i {
+          DfaIdentifier::Plain(i) =>
+            nfa.map.get(i).unwrap().transitions.iter()
+              .filter_map(|(cc, j)|
+                match cc {
+                  NfaTransition::Character(cc) =>
+                    Some((DfaIdentifier::Plain(j.clone()), DfaTransition::Character(cc.canonical_form()))),
+                  _ => None,
+                }
+              ).collect::<Vec<(DfaIdentifier<T, Boundary>, DfaTransition)>>(),
+          _ => vec!(),
+        }
+      ).collect();
+
+      let mut new_edges = Vec::new();
+      for (ids, cc) in set_covering(character_edges).into_iter() {
+        let mut ids = ids.clone();
+        bfs_epsilon(&mut ids, &nfa, |cc| *cc == NfaTransition::Empty);
+        new_edges.push((cc, ids.clone()));
+        // push ids onto the stack
+        stack.push_back(ids)
+      }
     }
+
     let new_node = Node {
       id: iter_set.clone(),
       transitions: new_edges,
@@ -699,7 +752,7 @@ pub trait Matcher {
 }
 
 impl Regex {
-  pub fn matcher(&self) -> Graph<BTreeSet<i32>, DfaTransition> {
+  pub fn matcher(&self) -> Graph<DfaNode<T, Boundary>, DfaTransition> {
     let nfa: Graph<i32, NfaTransition> = self.into();
     let dfa = nfa_to_dfa(nfa);
     dfa
