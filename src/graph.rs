@@ -127,12 +127,23 @@ impl<T: EdgeLabel> EdgeLabel for BTreeSet<T> {
   }
 }
 
-impl<T: EdgeLabel, B: Display> EdgeLabel for DfaIdentifier<T, B> {
+impl EdgeLabel for Boundary {
+  fn display(&self) -> String {
+    match self {
+      Boundary::Any => format!("()"),
+      Boundary::Word => format!("b"),
+      Boundary::Start => format!("^"),
+      Boundary::End => format!("$"),
+    }
+  }
+}
+
+impl<T: EdgeLabel, B: EdgeLabel> EdgeLabel for DfaIdentifier<T, B> {
   fn display(&self) -> String {
     match self {
       DfaIdentifier::Plain(t) => t.display(),
-      DfaIdentifier::Bound(b) => format!("{}", b),
-      DfaIdentifier::InverseBound(b) => format!("~{}", b),
+      DfaIdentifier::Bound(b) => b.display(),
+      DfaIdentifier::InverseBound(b) => format!("neg_{}", b.display()),
     }
   }
 }
@@ -390,6 +401,7 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>)
       let mut iter_set_bound = iter_set.clone();
       iter_set_bound.insert(DfaIdentifier::Bound(b.clone()));
       bfs_epsilon(&mut iter_set_bound, &nfa, |nfa_transition| match nfa_transition {
+        NfaTransition::Empty => true,
         NfaTransition::Boundary(b_transition) => *b_transition == b,
         _ => false,
       });
@@ -416,7 +428,6 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>)
         }
       ).collect();
 
-      let mut new_edges = Vec::new();
       for (ids, cc) in set_covering(character_edges).into_iter() {
         let mut ids = ids.clone();
         bfs_epsilon(&mut ids, &nfa, |cc| *cc == NfaTransition::Empty);
@@ -810,6 +821,7 @@ mod tests {
     assert!(m.match_string("a"));
     assert!(!m.match_string("b"));
     assert!(!m.match_string("aa"));
+    m.print_to_file("out/simple.dot")
   }
 
   #[test]
@@ -852,5 +864,15 @@ mod tests {
     assert!(!m.match_string("xxxyx"));
     assert!(m.match_string("y"));
     m.print_to_file("out/loop.dot");
+  }
+
+  #[test]
+  fn test_cat_word() {
+    let r: Regex = ".*\\bcat\\b.*".try_into().unwrap();
+    let m = r.matcher();
+    assert!(m.match_string("hello cat!"));
+    assert!(m.match_string("cat"));
+    assert!(!m.match_string("scatterbrained"));
+    m.print_to_file("out/cat.dot");
   }
 }
