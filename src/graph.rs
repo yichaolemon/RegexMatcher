@@ -706,7 +706,11 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
   for (i, input_set) in sets.into_iter() {
     let mut ids = BTreeSet::new();
     ids.insert(i);
-    to_process.insert(input_set, ids);
+    let unioned_ids = match to_process.get(&input_set) {
+      Some(ids2) => ids.union(ids2).cloned().collect(),
+      None => ids,
+    };
+    to_process.insert(input_set, unioned_ids);
   }
 
   while !to_process.is_empty() {
@@ -738,6 +742,25 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
     }
   }
   result
+}
+
+#[cfg(test)]
+mod set_covering_tests {
+  use super::*;
+
+  #[test]
+  fn test_full_intersection() {
+    let word = CharacterClass::Word;
+    let plain_0: DfaIdentifier<i32, Boundary> = DfaIdentifier::Plain(0);
+    let plain_1: DfaIdentifier<i32, Boundary> = DfaIdentifier::Plain(5);
+    let covering = set_covering(hashmap!(
+      plain_0.clone() => word.clone(),
+      plain_1.clone() => word.clone(),
+    ));
+    assert_eq!(covering, hashmap!(
+      btreeset!(plain_0, plain_1) => word.clone(),
+    ))
+  }
 }
 
 /// main function that matches a string against the DFA constructed from the regex
@@ -874,5 +897,14 @@ mod tests {
     assert!(m.match_string("cat"));
     assert!(!m.match_string("scatterbrained"));
     m.print_to_file("out/cat.dot");
+  }
+
+  #[test]
+  fn test_impossible_word_boundary() {
+    let r: Regex = "\\w+\\b\\w+".try_into().unwrap();
+    let m = r.matcher();
+    assert!(!m.match_string("eeeeee"));
+    assert!(!m.match_string("eee.eee"));
+    assert!(!m.match_string("cc"));
   }
 }

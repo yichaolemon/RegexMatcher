@@ -8,7 +8,7 @@ mod parser;
 mod graph;
 
 fn main() {
-  let r = "a";
+  let r = ".*\\bcat\\b.*";
   let regex: parser::Regex = r.try_into().unwrap();
   println!("regex is {:?}", regex);
   let nfa: graph::Graph<i32, graph::NfaTransition> = (&regex).into();
@@ -20,8 +20,7 @@ fn main() {
   let dfa = nfa_to_dfa(nfa);
   write_graph_to_file("out/dfa.dot", &dfa);
   println!("dfa is {:?}", dfa);
-  let s = "a";
+  let s = "cat";
   let is_match = dfa.match_string(s);
   println!("Does {} match `{}`? {}", s, r, is_match)
-
 }
