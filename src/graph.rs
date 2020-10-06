@@ -6,6 +6,7 @@ use std::ops::{Add};
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::Write;
+use hex::ToHex;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -72,19 +73,24 @@ pub trait EdgeLabel {
   fn display(&self) -> String;
 }
 
-impl<T: Hash + Eq + EdgeLabel, U: Display> Display for Graph<T, U> {
+fn encoded_label<L: EdgeLabel>(l: &L) -> String {
+  format!("_{}", l.display().encode_hex::<String>())
+}
+
+impl<T: Hash + Eq + EdgeLabel, U: EdgeLabel> Display for Graph<T, U> {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     write!(f, "digraph Regex {{\n")?;
     for (label, node) in self.map.iter() {
       write!(
         f,
-        "{} [{},{}];\n",
-        label.display(),
+        "{} [{},{},label=\"{}\"];\n",
+        encoded_label(label),
         if self.root == *label { "style=filled,color=\"0 0 .9\"" } else {"shape=ellipse"},
         if self.terminals.contains(label) { "peripheries=2" } else {"peripheries=1"},
+        label.display(),
       )?;
       for (transition, dst) in node.transitions.iter() {
-        write!(f, "{} -> {} [label=\"{}\"];\n", label.display(), dst.display(), transition)?;
+        write!(f, "{} -> {} [label=\"{}\"];\n", encoded_label(label), encoded_label(dst), transition.display())?;
       }
     }
     write!(f, "}}\n")
@@ -121,7 +127,11 @@ impl<T: EdgeLabel> EdgeLabel for BTreeSet<T> {
   fn display(&self) -> String {
     let mut s = String::new();
     for elt in self.iter() {
-      s = format!("{}_{}", s, elt.display());
+      if s.len() > 0 {
+        s = format!("{},{}", s, elt.display());
+      } else {
+        s = elt.display();
+      }
     }
     s
   }
@@ -130,10 +140,10 @@ impl<T: EdgeLabel> EdgeLabel for BTreeSet<T> {
 impl EdgeLabel for Boundary {
   fn display(&self) -> String {
     match self {
-      Boundary::Any => format!("any"),
-      Boundary::Word => format!("b"),
-      Boundary::Start => format!("start"),
-      Boundary::End => format!("end"),
+      Boundary::Any => format!("()"),
+      Boundary::Word => format!("\\\\b"),
+      Boundary::Start => format!("^"),
+      Boundary::End => format!("$"),
     }
   }
 }
@@ -143,12 +153,71 @@ impl<T: EdgeLabel, B: EdgeLabel> EdgeLabel for DfaIdentifier<T, B> {
     match self {
       DfaIdentifier::Plain(t) => t.display(),
       DfaIdentifier::Bound(b) => b.display(),
-      DfaIdentifier::InverseBound(b) => format!("neg_{}", b.display()),
+      DfaIdentifier::InverseBound(b) => format!("¬{}", b.display()),
     }
   }
 }
 
-pub fn write_graph_to_file<T: Hash + Eq + EdgeLabel, U: Display>(f: &str, g: &Graph<T, U>) {
+impl EdgeLabel for NfaTransition {
+  fn display(&self) -> String {
+    match self {
+      NfaTransition::Empty => format!("ε"),
+      NfaTransition::Character(cc) => cc.canonical_form().display(),
+      NfaTransition::Boundary(b) => b.display(),
+    }
+  }
+}
+
+impl EdgeLabel for DfaTransition {
+  fn display(&self) -> String {
+    match self {
+      DfaTransition::Character(cc) => cc.display(),
+      DfaTransition::Boundary(b) => b.display(),
+      DfaTransition::NegBoundary(b) => format!("¬{}", b.display()),
+    }
+  }
+}
+
+impl EdgeLabel for char {
+  fn display(&self) -> String {
+    (*self).escape_default().to_string().replace("\\u", "\\x")
+      .replace("\\", "\\\\").replace("{", "").replace("}", "")
+  }
+}
+
+impl EdgeLabel for CharacterClass {
+  fn display(&self) -> String {
+    let mut complex = false;
+    let inner = {
+      let mut s = String::new();
+      for range in self.iter() {
+        let r = match range {
+          CharacterClass::Range(a, b) => if *a == *b {
+              (*a).display()
+            } else {
+              complex = true;
+              format!("{}-{}", (*a).display(), (*b).display())
+            },
+          _ => panic!("expected canonical form"),
+        };
+        if s.len() > 0 {
+          complex = true;
+          s = format!("{},{}", s, r);
+        } else {
+          s = r;
+        }
+      }
+      s
+    };
+    if !complex {
+      inner
+    } else {
+      format!("[{}]", inner)
+    }
+  }
+}
+
+pub fn write_graph_to_file<T: Hash + Eq + EdgeLabel, U: EdgeLabel>(f: &str, g: &Graph<T, U>) {
   let mut file = File::create(f).unwrap();
   write!(&mut file, "{}", g).unwrap();
 }
