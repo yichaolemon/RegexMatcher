@@ -130,10 +130,10 @@ impl<T: EdgeLabel> EdgeLabel for BTreeSet<T> {
 impl EdgeLabel for Boundary {
   fn display(&self) -> String {
     match self {
-      Boundary::Any => format!("()"),
+      Boundary::Any => format!("any"),
       Boundary::Word => format!("b"),
-      Boundary::Start => format!("^"),
-      Boundary::End => format!("$"),
+      Boundary::Start => format!("start"),
+      Boundary::End => format!("end"),
     }
   }
 }
@@ -915,5 +915,31 @@ mod tests {
     assert!(!m.match_string("eeeeee"));
     assert!(!m.match_string("eee.eee"));
     assert!(!m.match_string("cc"));
+  }
+
+  #[test]
+  fn test_start_end() {
+    let r: Regex = "^id:[0-9]+$".try_into().unwrap();
+    let m = r.matcher();
+    assert!(m.match_string("id:123"));
+    assert!(!m.match_string("hid:1"));
+    assert!(!m.match_string("id:123 "));
+  }
+
+  #[test]
+  fn test_bad_start_end() {
+    let r: Regex = "a^b$c".try_into().unwrap();
+    let m = r.matcher();
+    assert!(!m.match_string("abc"));
+  }
+
+  #[test]
+  fn test_multi_boundary() {
+    let r: Regex = "^\\b()hi\\b()$".try_into().unwrap();
+    let m = r.matcher();
+    assert!(m.match_string("hi"));
+    assert!(!m.match_string(" hi"));
+    assert!(!m.match_string("hi "));
+    m.print_to_file("out/multi.dot");
   }
 }
