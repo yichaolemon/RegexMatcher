@@ -2,7 +2,7 @@ use crate::parser::{CharacterClass, Regex, Boundary};
 use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
 use std::{cmp, fmt};
-use std::ops::Add;
+use std::ops::{Add, Bound};
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::Write;
@@ -32,6 +32,7 @@ pub enum NfaTransition {
 pub enum DfaTransition {
   Character(CharacterClass),
   Boundary(Boundary),
+  NegBoundary(Boundary),
 }
 
 impl Default for DfaTransition {
@@ -106,7 +107,8 @@ impl Display for DfaTransition {
       DfaTransition::Character(cc) => {
         write!(f, "{}", cc)
       }
-      DfaTransition::Boundary(_) => unimplemented!()
+      DfaTransition::Boundary(_) => unimplemented!(),
+      DfaTransition::NegBoundary(_) => unimplemented!(),
     }
   }
 }
@@ -173,6 +175,8 @@ impl Transition for DfaTransition {
       DfaTransition::Character(cc) =>
         format!("{}{}", s, cc.example()),
       DfaTransition::Boundary(b) =>
+        unimplemented!(),
+      DfaTransition::NegBoundary(_) =>
         unimplemented!()
     }
   }
@@ -295,7 +299,8 @@ fn bfs_epsilon<T: Hash + Ord + Clone, U, F: FnMut(&U) -> bool>(
 pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -> Graph<BTreeSet<T>, DfaTransition> {
   let mut iter_set: BTreeSet<T> = BTreeSet::new();
   iter_set.insert(nfa.root.clone());
-  bfs_epsilon(&mut iter_set, &nfa, |cc| *cc == NfaTransition::Empty);
+  bfs_epsilon(&mut iter_set, &nfa,
+    |cc| *cc == NfaTransition::Empty || *cc == NfaTransition::Boundary(Boundary::Any));
   let mut stack = VecDeque::new();
   stack.push_back(iter_set);
   let mut boo = true;
@@ -318,15 +323,21 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>) -
               None,
             NfaTransition::Character(cc) =>
               Some((j.clone(), DfaTransition::Character(cc.canonical_form()))),
-            NfaTransition::Boundary(b) =>
-              unimplemented!(),
+            NfaTransition::Boundary(Boundary::Any) =>
+              panic!("bfs_epsilon should have taken care of all the any boundaries!"),
+            NfaTransition::Boundary(Boundary::Word) => {DfaTransition::Boundary(Boundary::Word)},
+            NfaTransition::Boundary(Boundary::Start) => {DfaTransition::Boundary(Boundary::Start)},
+            NfaTransition::Boundary(Boundary::End) => {DfaTransition::Boundary(Boundary::End)},
           }
         ).collect::<Vec<(T, DfaTransition)>>()
     ).collect();
+    // process the boundaries
+
     let mut new_edges = Vec::new();
     for (ids, cc) in set_covering(edges).into_iter() {
       let mut ids = ids.clone();
-      bfs_epsilon(&mut ids, &nfa, |cc| *cc == NfaTransition::Empty);
+      bfs_epsilon(&mut ids, &nfa,
+        |cc| *cc == NfaTransition::Empty || *cc == NfaTransition::Boundary(Boundary::Any));
       new_edges.push((cc, ids.clone()));
       // push ids onto the stack
       stack.push_back(ids)
@@ -583,6 +594,7 @@ impl MathSet for DfaTransition {
     match self {
       DfaTransition::Character(cc) => cc.is_empty(),
       DfaTransition::Boundary(_) => false, // doesn't really make sense, since boundary doens't consume chars
+      DfaTransition::NegBoundary(_) => false,
     }
   }
 }
@@ -629,6 +641,7 @@ fn set_covering<T: Ord + Clone + Hash + Debug, S: MathSet + Debug>(sets: HashMap
   result
 }
 
+/// main function that matches a string against the DFA constructed from the regex
 impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
   /// decide if the given string is part of the language defined by this DFA
   fn match_string(&self, s: &str) -> bool {
@@ -642,28 +655,31 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
       let mut found_match = false;
 
       for (transition, dst) in transitions {
-        match transition {
+        let new_found_match = match transition {
           DfaTransition::Character(cc) => {
             if cc.matches_char(c) {
-              if found_match {
-                panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
-              }
-              node = dst;
-              found_match = true;
               i += 1;
-            }
+              true
+            } else { false }
           },
           DfaTransition::Boundary(b) => {
             let c_before = c_list.get(i-1).copied();
             let c_after = Some(c);
-            if b.matches(c_before, c_after) {
-              if found_match {
-                panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
-              }
-              node = dst;
-              found_match = true;
-            }
+            b.matches(c_before, c_after)
           }
+          DfaTransition::NegBoundary(b) => {
+            let c_before = c_list.get(i-1).copied();
+            let c_after = Some(c);
+            !b.matches(c_before, c_after)
+          }
+        };
+
+        if new_found_match {
+          if found_match {
+            panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
+          }
+          node = dst;
+          found_match = true;
         }
       }
       if !found_match { return false }
