@@ -771,32 +771,33 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
     let c_list: Vec<char> = s.chars().into_iter().collect();
     let mut i = 0;
 
-    while i < c_list.len() {
-      let c = c_list[i];
+    while i <= c_list.len() {
+      let c = if i < c_list.len() { Some(c_list[i]) } else { None };
       let transitions = &self.map.get(node).unwrap().transitions;
       let mut found_match = false;
 
       for (transition, dst) in transitions {
         let new_found_match = match transition {
           DfaTransition::Character(cc) => {
-            if cc.matches_char(c) {
-              i += 1;
-              true
-            } else { false }
+            match c {
+              None => false,
+              Some(c) => if cc.matches_char(c) {
+                i += 1;
+                true
+              } else { false }
+            }
           },
           DfaTransition::Boundary(b) => {
             let c_before = if i == 0 { None } else {
               c_list.get(i-1).copied()
             };
-            let c_after = Some(c);
-            b.matches(c_before, c_after)
+            b.matches(c_before, c)
           }
           DfaTransition::NegBoundary(b) => {
             let c_before = if i == 0 { None } else {
               c_list.get(i-1).copied()
             };
-            let c_after = Some(c);
-            !b.matches(c_before, c_after)
+            !b.matches(c_before, c)
           }
         };
 
@@ -808,7 +809,13 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
           found_match = true;
         }
       }
-      if !found_match { return false }
+      if !found_match {
+        if i < c_list.len() {
+          return false
+        } else {
+          break
+        }
+      }
     }
 
     self.terminals.contains(node)
@@ -896,6 +903,8 @@ mod tests {
     assert!(m.match_string("hello cat!"));
     assert!(m.match_string("cat"));
     assert!(!m.match_string("scatterbrained"));
+    assert!(!m.match_string("catatonic cats"));
+    assert!(m.match_string("catatonic cat"));
     m.print_to_file("out/cat.dot");
   }
 
