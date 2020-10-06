@@ -2,11 +2,10 @@ use crate::parser::{CharacterClass, Regex, Boundary};
 use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
 use std::{cmp, fmt};
-use std::ops::{Add, Bound};
+use std::ops::{Add};
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::File;
 use std::io::Write;
-use std::intrinsics::unreachable;
 
 #[derive(Debug, Clone)]
 pub struct Node<T, U> {
@@ -130,6 +129,16 @@ impl<T: EdgeLabel> EdgeLabel for BTreeSet<T> {
   }
 }
 
+impl<T: EdgeLabel, B: Display> EdgeLabel for DfaIdentifier<T, B> {
+  fn display(&self) -> String {
+    match self {
+      DfaIdentifier::Plain(t) => t.display(),
+      DfaIdentifier::Bound(b) => format!("{}", b),
+      DfaIdentifier::InverseBound(b) => format!("~{}", b),
+    }
+  }
+}
+
 pub fn write_graph_to_file<T: Hash + Eq + EdgeLabel, U: Display>(f: &str, g: &Graph<T, U>) {
   let mut file = File::create(f).unwrap();
   write!(&mut file, "{}", g).unwrap();
@@ -175,7 +184,7 @@ impl Transition for DfaTransition {
     match self {
       DfaTransition::Character(cc) =>
         format!("{}{}", s, cc.example()),
-      DfaTransition::Boundary(b) =>
+      DfaTransition::Boundary(_) =>
         unimplemented!(),
       DfaTransition::NegBoundary(_) =>
         unimplemented!()
@@ -272,7 +281,7 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
 }
 
 /// find all nodes in the graph that are \epsilon away from given node set, mutate in place
-fn bfs_epsilon<T: Hash + Ord + Clone, U, V: From<&T> + Clone, F: FnMut(&U) -> bool>(
+fn bfs_epsilon<T: Hash + Ord + Clone, U, V: From<T> + Clone + Ord + Project<T>, F: FnMut(&U) -> bool>(
   nodes: &mut BTreeSet<V>, graph: &Graph<T, U>, mut f: F,
 ) {
   let mut queue = VecDeque::new();
@@ -284,12 +293,16 @@ fn bfs_epsilon<T: Hash + Ord + Clone, U, V: From<&T> + Clone, F: FnMut(&U) -> bo
   }
 
   while !queue.is_empty() {
-    let i = queue.pop_front().unwrap();
+    let maybe_i = queue.pop_front().unwrap().project();
+    let i = match maybe_i {
+      Some(i) => i,
+      _ => {continue},
+    };
     let epsilon_dests = graph.map.get(&i).unwrap().transitions.iter()
       .filter_map(|(cc, j)| if f(cc) {Some(j)} else {None});
     for j in epsilon_dests {
-      let v: V = j.into();
-      if !nodes.contains(v) {
+      let v: V = j.clone().into();
+      if !nodes.contains(&v) {
         queue.push_back(v.clone());
         nodes.insert(v.clone());
       }
@@ -305,6 +318,26 @@ pub enum DfaIdentifier<T, B> {
   Plain(T),
   Bound(B),
   InverseBound(B),
+}
+
+// Like TryInto but custom so it doesn't interfere with the standard library.
+trait Project<T> {
+  fn project(&self) -> Option<T>;
+}
+
+impl<T: Clone, B> Project<T> for DfaIdentifier<T, B> {
+  fn project(&self) -> Option<T> {
+    match self {
+      DfaIdentifier::Plain(t) => Some(t.clone()),
+      _ => None,
+    }
+  }
+}
+
+impl<T, B> From<T> for DfaIdentifier<T, B> {
+  fn from(value: T) -> Self {
+    DfaIdentifier::Plain(value)
+  }
 }
 
 type DfaNode<T, B> = BTreeSet<DfaIdentifier<T, B>>;
@@ -352,7 +385,7 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>)
       }
     ).collect();
 
-    if len(boundary_edges) > 0 {
+    if boundary_edges.len() > 0 {
       // split the node to make a deterministic choice based on the boundary.
       // TODO: short circuit Any boundary.
       let b = boundary_edges.into_iter().next().unwrap();
@@ -365,8 +398,8 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>)
       new_edges.push((DfaTransition::Boundary(b.clone()), iter_set_bound.clone()));
       stack.push_back(iter_set_bound);
       let mut iter_set_bound_inv = iter_set.clone();
-      iter_set_bound_inv.insert(DfaIdentifier::InverseBound(b));
-      new_edges.push((DfaTransition::NegBoundary(b.clone()), iter_set_bound_inv.clone()));
+      iter_set_bound_inv.insert(DfaIdentifier::InverseBound(b.clone()));
+      new_edges.push((DfaTransition::NegBoundary(b), iter_set_bound_inv.clone()));
       stack.push_back(iter_set_bound_inv);
     } else {
       // no boundary edges. find edges by taking a set covering of character edges.
@@ -400,9 +433,13 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>)
       transitions: new_edges,
     };
     for i in iter_set.iter() {
-      if nfa.terminals.contains(i) {
-        dfa.terminals.insert(iter_set.clone());
-        break
+      match i {
+        DfaIdentifier::Plain(i) =>
+          if nfa.terminals.contains(i) {
+            dfa.terminals.insert(iter_set.clone());
+            break
+          },
+        _ => {},
       }
     }
     dfa.map.insert(iter_set, new_node);
@@ -752,7 +789,7 @@ pub trait Matcher {
 }
 
 impl Regex {
-  pub fn matcher(&self) -> Graph<DfaNode<T, Boundary>, DfaTransition> {
+  pub fn matcher(&self) -> Graph<DfaNode<i32, Boundary>, DfaTransition> {
     let nfa: Graph<i32, NfaTransition> = self.into();
     let dfa = nfa_to_dfa(nfa);
     dfa

@@ -2,7 +2,6 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::fmt::Formatter;
 use std::ops::Deref;
-use crate::graph::DfaTransition::Character;
 
 const SPECIAL_CHARS: &str = "[\\^$.|?*+()";
 
