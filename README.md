@@ -8,6 +8,7 @@ Regular expression parser and matcher, among a few other things, WIP.
 - `graphviz` if you would like to use `dot` to visualize the generated NFA/DFA
 
 ### Try it out:
+
 This is a work-in-progress project that implements a Regex engine from scratch in Rust.
 It parses an input regular expression, generates an NFA from it, then converts the NFA
 to a DFA. Then, a string can be tested to see if it belongs to the language defined by 
@@ -22,8 +23,8 @@ dot -Tpng out/nfa.dot > out/nfa.png
 
 ### Capabilities:
 
-Most of the capabilities, including boundaries (`\b`, `$`, `^`).
-
+Most of the capabilities, including boundaries (`\b`, `$`, `^`). For example, regex `(hello|nihao)\b+.*[\da-z_]+` can 
+match strings such as: `hello a`, `nihao   \\\_`, `nihao,j`.
 
 ### TODOs:
 
