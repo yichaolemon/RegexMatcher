@@ -17,16 +17,13 @@ fn main() {
       .expect("Failed to read expression");
 
     let regex: parser::Regex = (&*expr.trim()).try_into().unwrap();
-    // println!("regex is {:?}", regex);
     let nfa: graph::Graph<i32, graph::NfaTransition> = (&regex).into();
     // println!("nfa is {:?}", nfa);
     fs::create_dir_all("out").unwrap();
-    write_graph_to_file("examples/nfa.dot", &nfa);
-    // let example = nfa.example();
-    // println!("example is {}", example.unwrap());
+    write_graph_to_file("out/nfa.dot", &nfa);
     let dfa = nfa_to_dfa(nfa);
-    write_graph_to_file("examples/dfa.dot", &dfa);
-    println!("dfa is {:?}", dfa);
+    write_graph_to_file("out/dfa.dot", &dfa);
+    // println!("dfa is {:?}", dfa);
     loop {
       let mut match_str = String::new();
       println!("Enter a string to be matched: ");
