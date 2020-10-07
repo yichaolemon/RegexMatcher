@@ -1,0 +1,5 @@
+digraph Regex {
+_30 [style=filled,color="0 0 .9",peripheries=1,label="0"];
+_30 -> _31 [label="()"];
+_31 [shape=ellipse,peripheries=2,label="1"];
+}
