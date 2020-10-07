@@ -26,7 +26,6 @@ dot -Tpng out/nfa.dot > out/nfa.png
 Most of the capabilities, including boundaries (`\b`, `$`, `^`). For example, regex `(hello|nihao)\b+.*[\da-z_]+` can 
 match strings such as: `hello a`, `nihao   \\\_`, `nihao,j`. The corresponding DFA and NFA are:
 
-![NFA for example](examples/nfa.png)
 ![DFA for example](examples/dfa.png)
 
 ### TODOs:
