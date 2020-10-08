@@ -16,7 +16,7 @@ impl fmt::Display for ParseError {
   }
 }
 
-type ParseResult<'a> = Result<(Regex, &'a str), ParseError>;
+type ParseResult<'a> = Result<(Regex, &'a str, GroupId), ParseError>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CharacterClass {
@@ -45,10 +45,12 @@ pub enum Boundary {
   End, // $
 }
 
+pub type GroupId = i32;
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Regex {
   Char(char), // a, \n
-  Group(Box<Regex>, i32), // (a) with a group index
+  Group(Box<Regex>, GroupId), // (a) with a group index
   Class(CharacterClass), // \w , [abc], [a-z], [$#.\w], [^abc], [^abc\w]
   Boundary(Boundary),
   Kleene(Box<Regex>), // a*
@@ -63,7 +65,7 @@ impl TryFrom<&str> for Regex {
   type Error = ParseError;
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
-    let (regex, str_remaining) = parse_regex(value)?;
+    let (regex, str_remaining, _) = parse_regex(value)?;
 
     match str_remaining.is_empty() {
       true => Ok(regex),
@@ -191,33 +193,37 @@ impl From<&str> for ParseError {
 }
 
 fn parse_regex(input_str: &str) -> ParseResult {
-  parse_alternative(input_str)
+  // GroupId starts at 1
+  parse_alternative(input_str, 1)
 }
 
-fn parse_alternative(input_str: &str) -> ParseResult {
-  let (mut regex, mut str_remaining) = parse_concat(input_str)?;
+fn parse_alternative(input_str: &str, group: GroupId) -> ParseResult {
+  let (mut regex, mut str_remaining, mut group) = parse_concat(input_str, group)?;
   while str_remaining.starts_with("|") {
-    let (regex2, str_remaining2) = parse_concat(str_remaining.get(1..).unwrap())?;
+    let (regex2, str_remaining2, new_group) = parse_concat(
+      str_remaining.get(1..).unwrap(), group)?;
     regex = Regex::Alternative(regex.into(), regex2.into());
     str_remaining = str_remaining2;
+    group = new_group;
   }
 
-  Ok((regex, str_remaining))
+  Ok((regex, str_remaining, group))
 }
 
-fn parse_concat(input_str: &str) -> ParseResult {
-  let (mut regex, mut str_remaining) = parse_quantifiers(input_str)?;
+fn parse_concat(input_str: &str, group: GroupId) -> ParseResult {
+  let (mut regex, mut str_remaining, mut group) = parse_quantifiers(input_str, group)?;
   while !(str_remaining.is_empty() || str_remaining.starts_with("|") || str_remaining.starts_with(")")) {
-    let (regex2, str_remaining2) = parse_quantifiers(str_remaining)?;
+    let (regex2, str_remaining2, group2) = parse_quantifiers(str_remaining, group)?;
     regex = Regex::Concat(regex.into(), regex2.into());
     str_remaining = str_remaining2;
+    group = group2;
   }
 
-  Ok((regex, str_remaining))
+  Ok((regex, str_remaining, group))
 }
 
-fn parse_quantifiers(input_str: &str) -> ParseResult {
-  let (mut regex, mut str_remaining) = parse_atom(input_str)?;
+fn parse_quantifiers(input_str: &str, group: GroupId) -> ParseResult {
+  let (mut regex, mut str_remaining, group) = parse_atom(input_str, group)?;
   if str_remaining.starts_with("*") {
     regex = Regex::Kleene(regex.into());
     str_remaining = str_remaining.get(1..).unwrap();
@@ -229,44 +235,46 @@ fn parse_quantifiers(input_str: &str) -> ParseResult {
     str_remaining = str_remaining.get(1..).unwrap();
   }
 
-  Ok((regex, str_remaining))
+  Ok((regex, str_remaining, group))
 }
 
 // Char, Group, Class, Boundaries
-fn parse_atom(input_str: &str) -> ParseResult {
+fn parse_atom(input_str: &str, group: GroupId) -> ParseResult {
   if input_str.starts_with("(") {
-    let (regex, str_remaining) = parse_alternative(input_str.get(1..).unwrap())?;
+    let (regex, str_remaining, group) =
+      parse_alternative(input_str.get(1..).unwrap(), group)?;
     if str_remaining.starts_with(")") {
-      Ok((Regex::Group(regex.into(), 0), str_remaining.get(1..).unwrap()))
+      // Here's where we increment group id.
+      Ok((Regex::Group(regex.into(), group), str_remaining.get(1..).unwrap(), group+1))
     } else {
       Err("Unbalanced parenthesis in regex".into())
     }
   } else if input_str.starts_with("[") {
-    let (regex, str_remaining) = parse_character_class(input_str.get(1..).unwrap())?;
+    let (regex, str_remaining, group) = parse_character_class(input_str.get(1..).unwrap(), group)?;
     if str_remaining.starts_with("]") {
-      Ok((regex, str_remaining.get(1..).unwrap()))
+      Ok((regex, str_remaining.get(1..).unwrap(), group))
     } else {
       Err("Unclosed character class in regex".into())
     }
   } else if input_str.starts_with("^") {
-    Ok((Regex::Boundary(Boundary::Start), input_str.get(1..).unwrap()))
+    Ok((Regex::Boundary(Boundary::Start), input_str.get(1..).unwrap(), group))
   } else if input_str.starts_with("$") {
-    Ok((Regex::Boundary(Boundary::End), input_str.get(1..).unwrap()))
+    Ok((Regex::Boundary(Boundary::End), input_str.get(1..).unwrap(), group))
   } else if input_str.starts_with(".") {
-    Ok((Regex::Class(CharacterClass::Any), input_str.get(1..).unwrap()))
+    Ok((Regex::Class(CharacterClass::Any), input_str.get(1..).unwrap(), group))
   } else if input_str.is_empty()
     || input_str.starts_with("|")
     || input_str.starts_with("?")
     || input_str.starts_with("*")
     || input_str.starts_with(")") {
-    Ok((Regex::Boundary(Boundary::Any), input_str))
+    Ok((Regex::Boundary(Boundary::Any), input_str, group))
   } else {
-    parse_single_char(input_str)
+    parse_single_char(input_str, group)
   }
 }
 
 // parse [...]
-fn parse_character_class(input_str: &str) -> ParseResult {
+fn parse_character_class(input_str: &str, group: GroupId) -> ParseResult {
   let mut negation = false;
   let mut str_remaining = input_str;
 
@@ -277,25 +285,26 @@ fn parse_character_class(input_str: &str) -> ParseResult {
   }
 
   // start out with a character class.
-  let (regex, mut str_remaining) = parse_character_class_atom(str_remaining)?;
+  let (regex, mut str_remaining, mut group) = parse_character_class_atom(str_remaining, group)?;
   let mut char_class: CharacterClass = regex.try_into()?;
 
   while !str_remaining.starts_with("]") && !str_remaining.is_empty() {
-    let (regex2, str_remaining2) = parse_character_class_atom(str_remaining)?;
+    let (regex2, str_remaining2, group2) = parse_character_class_atom(str_remaining, group)?;
     let next_char_class: CharacterClass = regex2.try_into()?;
     char_class = CharacterClass::Union(char_class.into(), next_char_class.into());
     str_remaining = str_remaining2;
+    group = group2;
   }
 
   if negation {
     char_class = CharacterClass::Negation(char_class.into());
   }
 
-  Ok((Regex::Class(char_class), str_remaining))
+  Ok((Regex::Class(char_class), str_remaining, group))
 }
 
-fn parse_character_class_atom(input_str: &str) -> ParseResult {
-  let (regex, mut str_remaining) = parse_single_char(input_str)?;
+fn parse_character_class_atom(input_str: &str, group: GroupId) -> ParseResult {
+  let (regex, mut str_remaining, mut group) = parse_single_char(input_str, group)?;
   let mut char_class = regex.try_into()?;
 
   if str_remaining.starts_with("-") {
@@ -304,19 +313,20 @@ fn parse_character_class_atom(input_str: &str) -> ParseResult {
       _ => return Err( "Invalid `-` range expression".into() )
     };
 
-    match parse_single_char(str_remaining.get(1..).unwrap())? {
-      (Regex::Char(c), s) => {
+    match parse_single_char(str_remaining.get(1..).unwrap(), group)? {
+      (Regex::Char(c), s, g) => {
         str_remaining = s;
+        group = g;
         char_class = CharacterClass::Range(start_char, c);
       },
       _ => return Err( "Invalid `-` range expression".into() )
     }
   }
 
-  Ok((Regex::Class(char_class), str_remaining))
+  Ok((Regex::Class(char_class), str_remaining, group))
 }
 
-fn parse_single_char(input_str: &str) -> ParseResult {
+fn parse_single_char(input_str: &str, group: GroupId) -> ParseResult {
   let mut str_remaining = input_str;
   if str_remaining.starts_with("\\") {
     str_remaining = str_remaining.get(1..).unwrap();
@@ -325,14 +335,14 @@ fn parse_single_char(input_str: &str) -> ParseResult {
     } else {
       // We only care about ascii.
       let regex = escaped_char(str_remaining.chars().next().unwrap())?;
-      Ok((regex, str_remaining.get(1..).unwrap()))
+      Ok((regex, str_remaining.get(1..).unwrap(), group))
     }
   } else if str_remaining.is_empty() {
     Err("Expected char but got end of string".into())
   } else {
     let rest = str_remaining.get(1..).unwrap();
     let first_char = str_remaining.chars().next().unwrap();
-    Ok((Regex::Char(first_char), rest))
+    Ok((Regex::Char(first_char), rest, group))
   }
 }
 

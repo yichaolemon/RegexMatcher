@@ -1,4 +1,4 @@
-use crate::parser::{CharacterClass, Regex, Boundary};
+use crate::parser::{CharacterClass, Regex, Boundary, GroupId};
 use std::collections::{HashMap, HashSet, VecDeque, BTreeSet};
 use std::hash::Hash;
 use std::{cmp, fmt};
@@ -13,6 +13,9 @@ pub struct Node<T, U> {
   id: T,
   // edges are character classes
   transitions: Vec<(U, T)>,
+
+  // which capture groups contain this node.
+  groups: BTreeSet<GroupId>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -49,6 +52,7 @@ fn graph_reindex<T: Hash + Eq, U, F: FnMut(&T) -> T>(graph: Graph<T, U>, mut f: 
     map.insert(f(&id), Node {
       id: f(&node.id),
       transitions: node.transitions.into_iter().map(|(u, t)| (u, f(&t))).collect(),
+      groups: node.groups,
     });
   }
   Graph {
@@ -58,13 +62,13 @@ fn graph_reindex<T: Hash + Eq, U, F: FnMut(&T) -> T>(graph: Graph<T, U>, mut f: 
   }
 }
 
-fn nfa_with_one_transition(t: NfaTransition) -> Graph<i32, NfaTransition> {
+fn nfa_with_one_transition(t: NfaTransition, groups: BTreeSet<GroupId>) -> Graph<i32, NfaTransition> {
   Graph{
     root: 0,
     terminals: hashset!{1},
     map: hashmap!{
-      0 => Node{id: 0, transitions: vec!((t, 1))},
-      1 => Node{id: 1, transitions: vec!()},
+      0 => Node{id: 0, transitions: vec!((t, 1)), groups: groups.clone()},
+      1 => Node{id: 1, transitions: vec!(), groups: groups},
     },
   }
 }
@@ -224,7 +228,7 @@ pub fn write_graph_to_file<T: Hash + Eq + EdgeLabel, U: EdgeLabel>(f: &str, g: &
 
 impl From<&Regex> for Graph<i32, NfaTransition> {
   fn from(r: &Regex) -> Self {
-    return build_nfa(r)
+    return build_nfa(r, BTreeSet::new())
   }
 }
 
@@ -287,13 +291,13 @@ impl<T: Eq + Hash, U: Transition> Graph<T, U> {
 }
 
 /// construct non-deterministic finite automata from the parsed Regex
-pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
+pub fn build_nfa(regex: &Regex, mut groups: BTreeSet<GroupId>) -> Graph<i32, NfaTransition> {
   match regex {
     Regex::Alternative(left, right) => {
       // Merge subgraphs, and create a new root with empty transitions to both subgraph-roots.
-      let mut left_nfa = build_nfa(left);
+      let mut left_nfa = build_nfa(left, groups.clone());
       let right_nfa = graph_reindex(
-        build_nfa(right),
+        build_nfa(right, groups.clone()),
         |id| *id + (left_nfa.map.len() as i32),
       );
       left_nfa.map.extend(right_nfa.map);
@@ -303,14 +307,15 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       left_nfa.map.insert(left_nfa.root, Node{
         id: left_nfa.root,
         transitions: vec!((NfaTransition::Empty, tmp_left_root), (NfaTransition::Empty, right_nfa.root)),
+        groups,
       });
       left_nfa
     },
     Regex::Concat(left, right) => {
       // Merge subgraphs, and connect all terminals of subgraph 1 to the root of subgraph 2.
-      let mut left_nfa = build_nfa(left);
+      let mut left_nfa = build_nfa(left, groups.clone());
       let right_nfa = graph_reindex(
-        build_nfa(right),
+        build_nfa(right, groups),
         |id| *id + (left_nfa.map.len() as i32),
       );
       for terminal in left_nfa.terminals.into_iter() {
@@ -322,12 +327,12 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       left_nfa
     },
     Regex::Optional(r) => {
-      let mut nfa = build_nfa(r);
+      let mut nfa = build_nfa(r, groups);
       nfa.terminals.insert(nfa.root);
       nfa
     },
     Regex::Plus(r) => {
-      let mut nfa = build_nfa(r);
+      let mut nfa = build_nfa(r, groups);
       for terminal in nfa.terminals.iter() {
         nfa.map.get_mut(terminal).unwrap()
           .transitions.push((NfaTransition::Empty, nfa.root));
@@ -335,7 +340,7 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       nfa
     },
     Regex::Kleene(r) => {
-      let mut nfa = build_nfa(r);
+      let mut nfa = build_nfa(r, groups);
       for terminal in nfa.terminals.iter() {
         nfa.map.get_mut(terminal).unwrap()
           .transitions.push((NfaTransition::Empty, nfa.root));
@@ -344,16 +349,17 @@ pub fn build_nfa(regex: &Regex) -> Graph<i32, NfaTransition> {
       nfa
     },
     Regex::Boundary(b) => {
-      nfa_with_one_transition(NfaTransition::Boundary(b.clone()))
+      nfa_with_one_transition(NfaTransition::Boundary(b.clone()), groups)
     },
     Regex::Class(cc) => {
-      nfa_with_one_transition(NfaTransition::Character(cc.clone()))
+      nfa_with_one_transition(NfaTransition::Character(cc.clone()), groups)
     },
-    Regex::Group(r, _) => {
-      build_nfa(r)
+    Regex::Group(r, group_id) => {
+      groups.insert(*group_id);
+      build_nfa(r, groups)
     },
     Regex::Char(c) => {
-      nfa_with_one_transition(NfaTransition::Character(CharacterClass::Char(*c)))
+      nfa_with_one_transition(NfaTransition::Character(CharacterClass::Char(*c)), groups)
     },
   }
 }
@@ -505,10 +511,19 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>)
         stack.push_back(ids)
       }
     }
+    let mut groups = BTreeSet::new();
+    for i in iter_set.iter() {
+      match i {
+        DfaIdentifier::Plain(t) =>
+          groups.extend(nfa.map.get(t).unwrap().groups.iter()),
+        _ => {},
+      }
+    }
 
     let new_node = Node {
       id: iter_set.clone(),
       transitions: new_edges,
+      groups,
     };
     for i in iter_set.iter() {
       match i {
