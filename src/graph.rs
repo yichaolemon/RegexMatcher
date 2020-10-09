@@ -850,10 +850,11 @@ mod set_covering_tests {
 /// main function that matches a string against the DFA constructed from the regex
 impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
   /// decide if the given string is part of the language defined by this DFA
-  fn match_string(&self, s: &str) -> bool {
+  fn match_string(&self, s: &str) -> Match {
     let mut node = &self.root;
     let c_list: Vec<char> = s.chars().into_iter().collect();
     let mut i = 0;
+    let mut groups: HashMap<GroupId, String> = HashMap::new();
 
     while i <= c_list.len() {
       let c = if i < c_list.len() { Some(c_list[i]) } else { None };
@@ -889,20 +890,34 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
           if found_match {
             panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
           }
+          // a character belongs to a group iff node and dst both belong to this group
+          if c != None {
+            let group_node = &self.map.get(node).unwrap().groups;
+            let group_dst = &self.map.get(dst).unwrap().groups;
+            for group_id in group_node.intersection(group_dst) {
+              match groups.get_mut(group_id) {
+                Some(s) => s.push(c.unwrap()),
+                None => { groups.insert(*group_id, format!("{}", c.unwrap())); }
+              };
+            }
+          }
+
           node = dst;
           found_match = true;
         }
       }
       if !found_match {
         if i < c_list.len() {
-          return false
+          return Match::default()
         } else {
           break
         }
       }
     }
 
-    self.terminals.contains(node)
+    if self.terminals.contains(node) {
+      Match { is_match: true, groups}
+    } else { Match::default() }
   }
 
   fn print_to_file(&self, f: &str) {
@@ -911,8 +926,14 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
 }
 
 pub trait Matcher {
-  fn match_string(&self, s: &str) -> bool;
+  fn match_string(&self, s: &str) -> Match;
   fn print_to_file(&self, f: &str);
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct Match {
+  is_match: bool,
+  groups: HashMap<GroupId, String>,
 }
 
 impl Regex {

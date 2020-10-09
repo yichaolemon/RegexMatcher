@@ -32,7 +32,7 @@ fn main() {
         .expect("Failed to read expression");
       if match_str.trim() == "quit" { break; }
       let is_match = dfa.match_string(&*match_str.trim());
-      println!("Match result: [{}]", is_match)
+      println!("Match result: [{:?}]", is_match)
     }
   }
 }
