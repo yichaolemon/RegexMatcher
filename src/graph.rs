@@ -81,17 +81,37 @@ fn encoded_label<L: EdgeLabel>(l: &L) -> String {
   format!("_{}", l.display().encode_hex::<String>())
 }
 
+fn display_groups(groups: &BTreeSet<GroupId>) -> String {
+  let mut s = String::new();
+  if groups.len() == 0 {
+    return s
+  }
+  s.push_str(" (");
+  let mut first = true;
+  for group in groups.iter() {
+    if first {
+      first = false;
+    } else {
+      s.push_str(", ");
+    }
+    s.push_str(&*format!("{}", *group));
+  }
+  s.push(')');
+  s
+}
+
 impl<T: Hash + Eq + EdgeLabel, U: EdgeLabel> Display for Graph<T, U> {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     write!(f, "digraph Regex {{\n")?;
     for (label, node) in self.map.iter() {
       write!(
         f,
-        "{} [{},{},label=\"{}\"];\n",
+        "{} [{},{},label=\"{}{}\"];\n",
         encoded_label(label),
         if self.root == *label { "style=filled,color=\"0 0 .9\"" } else {"shape=ellipse"},
         if self.terminals.contains(label) { "peripheries=2" } else {"peripheries=1"},
         label.display(),
+        display_groups(&node.groups),
       )?;
       for (transition, dst) in node.transitions.iter() {
         write!(f, "{} -> {} [label=\"{}\"];\n", encoded_label(label), encoded_label(dst), transition.display())?;
@@ -975,7 +995,15 @@ mod group_tests {
   }
 
   #[test]
-  fn test_nested() {
+  fn test_greedy() {
+    let r: Regex = "(.*)a".try_into().unwrap();
+    let m = r.matcher();
+    m.print_to_file("out/greedy.dot");
+    assert_eq!(m.match_string("ba").group(1), Some("b"));
+  }
+
+  #[test]
+  fn test_nested_overlap() {
     let r: Regex = "My name is ((.*\\.) (\\w+))".try_into().unwrap();
     let m = r.matcher();
     let my_match = m.match_string("My name is Mr. Wallace");
