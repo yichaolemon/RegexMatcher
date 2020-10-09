@@ -936,6 +936,12 @@ pub struct Match {
   groups: HashMap<GroupId, String>,
 }
 
+impl Match {
+  pub fn group(&self, id: GroupId) -> Option<&str> {
+    self.groups.get(&id).map(|s| &**s)
+  }
+}
+
 impl Regex {
   pub fn matcher(&self) -> Graph<DfaNode<i32, Boundary>, DfaTransition> {
     let nfa: Graph<i32, NfaTransition> = self.into();
@@ -945,7 +951,42 @@ impl Regex {
 }
 
 #[cfg(test)]
-mod tests {
+mod group_tests {
+  use super::*;
+  use std::convert::TryInto;
+
+  #[test]
+  fn test_simple() {
+    let r: Regex = "(a)".try_into().unwrap();
+    let m = r.matcher();
+    assert_eq!(m.match_string("a").group(1), Some("a"));
+    assert_eq!(m.match_string("b").group(1), None);
+    assert_eq!(m.match_string("a").group(2), None);
+  }
+
+  #[test]
+  fn test_multiple() {
+    let r: Regex = "([0-9]*),([0-9]*)".try_into().unwrap();
+    let m = r.matcher();
+    let my_match = m.match_string("123,45");
+    assert_eq!(my_match.group(1), Some("123"));
+    assert_eq!(my_match.group(2), Some("45"));
+    assert_eq!(m.match_string("123").group(1), None);
+  }
+
+  #[test]
+  fn test_nested() {
+    let r: Regex = "My name is ((.*\\.) (\\w+))".try_into().unwrap();
+    let m = r.matcher();
+    let my_match = m.match_string("My name is Mr. Wallace");
+    assert_eq!(my_match.group(1), Some("Mr. Wallace"));
+    assert_eq!(my_match.group(2), Some("Mr."));
+    assert_eq!(my_match.group(3), Some("Wallace"));
+  }
+}
+
+#[cfg(test)]
+mod match_tests {
   use super::*;
   use std::convert::TryInto;
 
@@ -953,9 +994,9 @@ mod tests {
   fn test_simple() {
     let r: Regex = "a".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("a"));
-    assert!(!m.match_string("b"));
-    assert!(!m.match_string("aa"));
+    assert!(m.match_string("a").is_match);
+    assert!(!m.match_string("b").is_match);
+    assert!(!m.match_string("aa").is_match);
     m.print_to_file("out/simple.dot")
   }
 
@@ -963,28 +1004,28 @@ mod tests {
   fn test_character_class() {
     let r: Regex = "a([ab]|[ac])c[abc]".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("abca"));
-    assert!(!m.match_string("abbc"));
-    assert!(!m.match_string("aaccc"));
+    assert!(m.match_string("abca").is_match);
+    assert!(!m.match_string("abbc").is_match);
+    assert!(!m.match_string("aaccc").is_match);
   }
 
   #[test]
   fn test_character_class_intersection() {
     let r: Regex = "[0-a]+(\\d)*[abc|c]+".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("90736464ZLKHAHFUU``223|"));
+    assert!(m.match_string("90736464ZLKHAHFUU``223|").is_match);
   }
 
   #[test]
   fn test_any() {
     let r: Regex = ".[-a0-8]+[0-9]?[.]+".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("a-123..."));
-    assert!(m.match_string("-19."));
-    assert!(!m.match_string("a9."));
-    assert!(!m.match_string("00000"));
-    assert!(!m.match_string("x012-90."));
-    assert!(m.match_string("00000."));
+    assert!(m.match_string("a-123...").is_match);
+    assert!(m.match_string("-19.").is_match);
+    assert!(!m.match_string("a9.").is_match);
+    assert!(!m.match_string("00000").is_match);
+    assert!(!m.match_string("x012-90.").is_match);
+    assert!(m.match_string("00000.").is_match);
     m.print_to_file("out/any.dot");
   }
 
@@ -993,11 +1034,11 @@ mod tests {
     // example from stanford pset that can cause a loop if you're not careful.
     let r: Regex = "(x?)*y".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("xxxxxy"));
-    assert!(!m.match_string("x"));
-    assert!(!m.match_string("xxxxxxxx"));
-    assert!(!m.match_string("xxxyx"));
-    assert!(m.match_string("y"));
+    assert!(m.match_string("xxxxxy").is_match);
+    assert!(!m.match_string("x").is_match);
+    assert!(!m.match_string("xxxxxxxx").is_match);
+    assert!(!m.match_string("xxxyx").is_match);
+    assert!(m.match_string("y").is_match);
     m.print_to_file("out/loop.dot");
   }
 
@@ -1005,11 +1046,11 @@ mod tests {
   fn test_cat_word() {
     let r: Regex = ".*\\bcat\\b.*".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("hello cat!"));
-    assert!(m.match_string("cat"));
-    assert!(!m.match_string("scatterbrained"));
-    assert!(!m.match_string("catatonic cats"));
-    assert!(m.match_string("catatonic cat"));
+    assert!(m.match_string("hello cat!").is_match);
+    assert!(m.match_string("cat").is_match);
+    assert!(!m.match_string("scatterbrained").is_match);
+    assert!(!m.match_string("catatonic cats").is_match);
+    assert!(m.match_string("catatonic cat").is_match);
     m.print_to_file("out/cat.dot");
   }
 
@@ -1017,34 +1058,34 @@ mod tests {
   fn test_impossible_word_boundary() {
     let r: Regex = "\\w+\\b\\w+".try_into().unwrap();
     let m = r.matcher();
-    assert!(!m.match_string("eeeeee"));
-    assert!(!m.match_string("eee.eee"));
-    assert!(!m.match_string("cc"));
+    assert!(!m.match_string("eeeeee").is_match);
+    assert!(!m.match_string("eee.eee").is_match);
+    assert!(!m.match_string("cc").is_match);
   }
 
   #[test]
   fn test_start_end() {
     let r: Regex = "^id:[0-9]+$".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("id:123"));
-    assert!(!m.match_string("hid:1"));
-    assert!(!m.match_string("id:123 "));
+    assert!(m.match_string("id:123").is_match);
+    assert!(!m.match_string("hid:1").is_match);
+    assert!(!m.match_string("id:123 ").is_match);
   }
 
   #[test]
   fn test_bad_start_end() {
     let r: Regex = "a^b$c".try_into().unwrap();
     let m = r.matcher();
-    assert!(!m.match_string("abc"));
+    assert!(!m.match_string("abc").is_match);
   }
 
   #[test]
   fn test_multi_boundary() {
     let r: Regex = "^\\b()hi\\b()$".try_into().unwrap();
     let m = r.matcher();
-    assert!(m.match_string("hi"));
-    assert!(!m.match_string(" hi"));
-    assert!(!m.match_string("hi "));
+    assert!(m.match_string("hi").is_match);
+    assert!(!m.match_string(" hi").is_match);
+    assert!(!m.match_string("hi ").is_match);
     m.print_to_file("out/multi.dot");
   }
 }
