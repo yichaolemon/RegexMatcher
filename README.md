@@ -28,6 +28,11 @@ match strings such as: `hello a`, `nihao   \\\_`, `nihao,j`. The corresponding D
 
 ![DFA for example](examples/dfa.png)
 
+### Ideas for dealing with groups:
+
+- Given a path in the DFA, turn it back into a path in the NFA, and use the NFA to tell where the groups are. 
+- Separate out start and end of each group, and see if that helps with the matching.
+
 ### TODOs:
 
 - allow match groups 
