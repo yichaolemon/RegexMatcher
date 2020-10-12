@@ -225,6 +225,7 @@ impl MathSet for DfaTransition {
 pub struct RegexMatcher<T: Ord> {
   nfa: Graph<T, NfaTransition>,
   dfa: Graph<BTreeSet<DfaIdentifier<T, Boundary>>, DfaTransition>,
+  num_groups: i32,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -354,7 +355,7 @@ impl<T: Eq + Hash + Debug + EdgeLabel + Ord> Matcher for RegexMatcher<T> {
       }
       Match{
         is_match: true,
-        groups: self.nfa.find_groups_by_path(nfa_path.clone(), s),
+        groups: self.nfa.find_groups_by_path(nfa_path.clone(), s, self.num_groups),
         debug: format!("{:?}", nfa_path),
       }
     } else { Match::default() }
@@ -369,9 +370,12 @@ impl Regex {
   pub fn matcher(&self) -> RegexMatcher<i32> {
     let nfa: Graph<i32, NfaTransition> = self.into();
     let dfa = nfa_to_dfa(nfa.clone());
-    RegexMatcher{
+    let all_group_ids: HashSet<GroupId> =
+      nfa.map.iter().flat_map(|(_, v)| v.groups.iter().cloned()).collect();
+    RegexMatcher {
       nfa,
       dfa,
+      num_groups: all_group_ids.len() as i32,
     }
   }
 }
@@ -416,6 +420,34 @@ mod group_tests {
     assert_eq!(my_match.group(1), Some("Mr. Wallace"));
     assert_eq!(my_match.group(2), Some("Mr."));
     assert_eq!(my_match.group(3), Some("Wallace"));
+  }
+
+  #[test]
+  fn test_complex_overlap() {
+    let r: Regex = "((.*\\.) ((\\w+) ([-a-z\\\\_\\d]+)))".try_into().unwrap();
+    let m = r.matcher();
+    let my_match = m.match_string("Hello World. Date 10-10-10_11pm");
+    assert!(my_match.is_match);
+    assert_eq!(my_match.group(1), Some("Hello World. Date 10-10-10_11pm"));
+    assert_eq!(my_match.group(2), Some("Hello World."));
+    assert_eq!(my_match.group(3), Some("Date 10-10-10_11pm"));
+    assert_eq!(my_match.group(4), Some("Date"));
+    assert_eq!(my_match.group(5), Some("10-10-10_11pm"));
+  }
+
+  #[test]
+  fn test_greedy_match() {
+    let r: Regex = ".*<a>(.*)</a>.*".try_into().unwrap();
+    let my_match = r.matcher().match_string("<p>hi</p><a>thing</a>yes<a>bye</a>heeee");
+    assert_eq!(my_match.group(1), Some("thing</a>yes<a>bye"));
+  }
+
+  #[test]
+  fn test_group_skipped() {
+    let r: Regex = "a(b|(c))d".try_into().unwrap();
+    let my_match = r.matcher().match_string("abd");
+    assert_eq!(my_match.group(1), Some("b"));
+    assert_eq!(my_match.group(2), Some(""));
   }
 }
 
