@@ -25,11 +25,23 @@ pub struct Graph<T, U> {
   map: HashMap<T, Node<T, U>>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct RegexMatcher<T: Ord> {
+  nfa: Graph<T, NfaTransition>,
+  dfa: Graph<BTreeSet<DfaIdentifier<T, Boundary>>, DfaTransition>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum NfaTransition {
   Empty, // no op
   Character(CharacterClass),
   Boundary(Boundary),
+}
+
+impl Default for NfaTransition {
+  fn default() -> Self {
+    NfaTransition::Empty
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -531,19 +543,10 @@ pub fn nfa_to_dfa<T: Hash + Ord + Clone + Debug>(nfa: Graph<T, NfaTransition>)
         stack.push_back(ids)
       }
     }
-    let mut groups = BTreeSet::new();
-    for i in iter_set.iter() {
-      match i {
-        DfaIdentifier::Plain(t) =>
-          groups.extend(nfa.map.get(t).unwrap().groups.iter()),
-        _ => {},
-      }
-    }
-
     let new_node = Node {
       id: iter_set.clone(),
       transitions: new_edges,
-      groups,
+      groups: BTreeSet::new(), // we don't populate this for DFA nodes
     };
     for i in iter_set.iter() {
       match i {
@@ -867,18 +870,97 @@ mod set_covering_tests {
   }
 }
 
+impl<T: Eq + Hash> Graph<T, NfaTransition> {
+  /// Finds a path through the NFA that traverses any number of epsilon and allowed_boundary edges.
+  fn find_path_to<'a>(&'a self, dst: &T, sources: HashMap<&'a T, Vec<&'a T>>, allowed_boundary: &HashSet<&Boundary>) -> Option<Vec<&'a T>> {
+    let mut queue = VecDeque::new();
+    let mut backedges = HashMap::new();
+    for source in sources.keys() {
+      queue.push_back(*source);
+      backedges.insert(*source, None);
+    }
+    while !queue.is_empty() {
+      let n = queue.pop_front().unwrap();
+
+      if *n == *dst {
+        // Found it! Determine the path by walking backedges.
+        let mut path = Vec::new();
+        let mut path_node = Some(n);
+        loop {
+          if let Some(n) = path_node {
+            path_node = *backedges.get(n).unwrap();
+            if path_node == None {
+              path.reverse();
+              let mut full_path = sources.get(n).unwrap().clone();
+              full_path.extend(path);
+              return Some(full_path);
+            }
+            path.push(n);
+          }
+        }
+      }
+
+      for (transition, next) in self.map.get(n).unwrap().transitions.iter() {
+        if backedges.contains_key(&next) {
+          continue;
+        }
+        if match transition {
+          NfaTransition::Empty => true,
+          NfaTransition::Character(_) => false,
+          NfaTransition::Boundary(b) => allowed_boundary.contains(b),
+        } {
+          backedges.insert(next, Some(n));
+          queue.push_back(next);
+        }
+      }
+    }
+    None
+  }
+
+  fn extend_paths_by_char<'a>(&'a self, sources: HashMap<&T, Vec<&'a T>>, c: char) -> HashMap<&'a T, Vec<&'a T>> {
+    let mut results = HashMap::new();
+    for (source, path) in sources.into_iter() {
+      for (transition, next) in self.map.get(source).unwrap().transitions.iter() {
+        match transition {
+          NfaTransition::Character(cc) => if cc.matches_char(c) {
+            let mut new_path = path.clone();
+            new_path.push(next);
+            results.insert(next, new_path);
+          }
+          _ => {},
+        }
+      }
+    }
+    results
+  }
+}
+
 /// main function that matches a string against the DFA constructed from the regex
-impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
+impl<T: Eq + Hash + Debug + EdgeLabel + Ord> Matcher for RegexMatcher<T> {
   /// decide if the given string is part of the language defined by this DFA
   fn match_string(&self, s: &str) -> Match {
-    let mut node = &self.root;
+    let mut dfa_node = &self.dfa.root;
     let c_list: Vec<char> = s.chars().into_iter().collect();
     let mut i = 0;
-    let mut groups: HashMap<GroupId, String> = HashMap::new();
+    // For each NFA node in the current DFA node,
+    // keep track of 1 possible path in the NFA that goes from the root to this node.
+    let mut possible_paths: HashMap<&T, Vec<&T>> = HashMap::new();
+    for node_id in dfa_node.iter() {
+      match node_id {
+        DfaIdentifier::Plain(id) => {
+          possible_paths.insert(id, self.nfa.find_path_to(
+            id,
+            hashmap!(&self.nfa.root => vec!(&self.nfa.root)),
+            &HashSet::new(),
+          ).unwrap());
+        },
+        _ => {},
+      }
+    }
 
     while i <= c_list.len() {
       let c = if i < c_list.len() { Some(c_list[i]) } else { None };
-      let transitions = &self.map.get(node).unwrap().transitions;
+      let transitions = &self.dfa.map.get(dfa_node).unwrap().transitions;
       let mut found_match = false;
 
       for (transition, dst) in transitions {
@@ -908,21 +990,31 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
 
         if new_found_match {
           if found_match {
-            panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, node, self);
+            panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, dfa_node, self);
           }
-          // a character belongs to a group iff node and dst both belong to this group
-          if c != None {
-            let group_node = &self.map.get(node).unwrap().groups;
-            let group_dst = &self.map.get(dst).unwrap().groups;
-            for group_id in group_node.intersection(group_dst) {
-              match groups.get_mut(group_id) {
-                Some(s) => s.push(c.unwrap()),
-                None => { groups.insert(*group_id, format!("{}", c.unwrap())); }
-              };
-            }
+          // We have transitioned from dfa_node to dst by consuming c.
+          // Now we find paths in the NFA that could have gotten us here.
+          if let Some(c) = c {
+            possible_paths = self.nfa.extend_paths_by_char(possible_paths, c);
           }
+          let boundaries = dst.iter().filter_map(|id| match id {
+            DfaIdentifier::Bound(b) => Some(b),
+            _ => None,
+          }).collect();
+          let mut new_possible_paths = HashMap::new();
+          for nfa_dst in dst.iter().filter_map(|id| match id {
+            DfaIdentifier::Plain(id) => Some(id),
+            _ => None,
+          }) {
+            new_possible_paths.insert(
+              nfa_dst,
+              self.nfa.find_path_to(nfa_dst, possible_paths.clone(), &boundaries).unwrap(),
+            );
+          }
+          possible_paths = new_possible_paths;
 
-          node = dst;
+          // Move on to the next character.
+          dfa_node = dst;
           found_match = true;
         }
       }
@@ -935,13 +1027,27 @@ impl<T: Eq + Hash + Debug + EdgeLabel> Matcher for Graph<T, DfaTransition> {
       }
     }
 
-    if self.terminals.contains(node) {
-      Match { is_match: true, groups}
+    if self.dfa.terminals.contains(dfa_node) {
+      let mut nfa_path: Vec<&T> = Vec::new();
+      for nfa_node in dfa_node.iter().filter_map(|id| match id {
+        DfaIdentifier::Plain(id) => Some(id),
+        _ => None,
+      }) {
+        if self.nfa.terminals.contains(nfa_node) {
+          nfa_path = possible_paths.get(nfa_node).unwrap().to_vec();
+          break;
+        }
+      }
+      Match{
+        is_match: true,
+        groups: hashmap!(),
+        debug: format!("{:?}", nfa_path),
+      }
     } else { Match::default() }
   }
 
   fn print_to_file(&self, f: &str) {
-    write_graph_to_file(f, self);
+    write_graph_to_file(f, &self.dfa);
   }
 }
 
@@ -954,6 +1060,7 @@ pub trait Matcher {
 pub struct Match {
   is_match: bool,
   groups: HashMap<GroupId, String>,
+  debug: String,
 }
 
 impl Match {
@@ -963,10 +1070,13 @@ impl Match {
 }
 
 impl Regex {
-  pub fn matcher(&self) -> Graph<DfaNode<i32, Boundary>, DfaTransition> {
+  pub fn matcher(&self) -> RegexMatcher<i32> {
     let nfa: Graph<i32, NfaTransition> = self.into();
-    let dfa = nfa_to_dfa(nfa);
-    dfa
+    let dfa = nfa_to_dfa(nfa.clone());
+    RegexMatcher{
+      nfa,
+      dfa,
+    }
   }
 }
 
