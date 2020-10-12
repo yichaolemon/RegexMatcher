@@ -2,6 +2,7 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::fmt::Formatter;
 use std::ops::Deref;
+use crate::character_class::CharacterClass;
 
 const SPECIAL_CHARS: &str = "[\\^$.|?*+()";
 
@@ -17,24 +18,6 @@ impl fmt::Display for ParseError {
 }
 
 type ParseResult<'a> = Result<(Regex, &'a str, GroupId), ParseError>;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum CharacterClass {
-  Char(char), // [a]
-  Any, // .
-  Word, // \w
-  Whitespace, // \s
-  Digit, // \d
-  Negation(Box<CharacterClass>), // [^a], \W
-  Union(Box<CharacterClass>, Box<CharacterClass>), // [ab]
-  Range(char, char), // a-z
-}
-
-impl Default for CharacterClass {
-  fn default() -> Self {
-    CharacterClass::Range('b', 'a')  // empty
-  }
-}
 
 /// zero-width matcher
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -114,38 +97,6 @@ impl fmt::Display for Regex {
   }
 }
 
-impl fmt::Display for CharacterClass {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-
-    fn inner_fmt(cc: &CharacterClass, f: &mut Formatter<'_>) -> fmt::Result {
-      match cc {
-        CharacterClass::Char(c) => write!(f, "{}", c.escape_default().collect::<String>()),
-        CharacterClass::Any => panic!("Any not allowed inside []"),
-        CharacterClass::Range(a, b) => write!(f, "{}-{}", a.escape_default().collect::<String>(), b.escape_default().collect::<String>()),
-        CharacterClass::Union(cc1, cc2) => {
-          inner_fmt(cc1, f)?;
-          inner_fmt(cc2, f)
-        },
-        CharacterClass::Word => write!(f, "\\w"),
-        CharacterClass::Digit => write!(f, "\\d"),
-        CharacterClass::Whitespace => write!(f, "\\s"),
-        CharacterClass::Negation(cc) =>
-          match cc.deref() {
-            CharacterClass::Word => write!(f, "\\w"),
-            CharacterClass::Digit => write!(f, "\\d"),
-            CharacterClass::Whitespace => write!(f, "\\s"),
-            _ => panic!("Negation must be at the top level of character class"),
-          },
-      }
-    }
-
-    match self {
-      CharacterClass::Any => write!(f, "."),
-      CharacterClass::Negation(cc) => { write!(f, "[^")?; inner_fmt(cc, f)?; write!(f, "]") },
-      _ => { write!(f, "[")?; inner_fmt(self, f)?; write!(f, "]") },
-    }
-  }
-}
 
 impl fmt::Display for Boundary {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

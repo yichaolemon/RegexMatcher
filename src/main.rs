@@ -1,12 +1,17 @@
 use std::convert::TryInto;
-use crate::graph::{nfa_to_dfa, Matcher, write_graph_to_file};
+use crate::graph::{write_graph_to_file};
 use std::fs;
 use std::io;
+use crate::dfa::{nfa_to_dfa, Matcher};
+use crate::nfa::NfaTransition;
 
 #[macro_use] extern crate maplit;
 
 mod parser;
 mod graph;
+mod nfa;
+mod dfa;
+mod character_class;
 
 fn main() {
   loop {
@@ -17,7 +22,7 @@ fn main() {
       .expect("Failed to read expression");
 
     let regex: parser::Regex = (&*expr.trim()).try_into().unwrap();
-    let nfa: graph::Graph<i32, graph::NfaTransition> = (&regex).into();
+    let nfa: graph::Graph<i32, NfaTransition> = (&regex).into();
     // println!("nfa is {:?}", nfa);
     fs::create_dir_all("out").unwrap();
     write_graph_to_file("out/nfa.dot", &nfa);

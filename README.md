@@ -7,7 +7,6 @@ Regular expression parser and matcher, among a few other things, WIP.
 - [Rust](https://www.rust-lang.org/tools/install) 
 - `graphviz` if you would like to use `dot` to visualize the generated NFA/DFA
 
-### Try it out:
 
 This is a work-in-progress project that implements a Regex engine from scratch in Rust.
 It parses an input regular expression, generates an NFA from it, then converts the NFA
