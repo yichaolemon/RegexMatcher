@@ -255,4 +255,42 @@ impl<T: Eq + Hash> Graph<T, NfaTransition> {
     }
     results
   }
+
+  pub(crate) fn find_groups_by_path(&self, path: Vec<&T>, matched_string: &str) -> HashMap<GroupId, String> {
+    if **path.get(0).unwrap() != self.root { panic!("path should start at NFA root!") }
+    if !self.terminals.contains(path.last().unwrap()) { panic!("path should end at a terminal node of the NFA!") }
+    let mut results: HashMap<GroupId, String> = HashMap::new();
+    let matched_chars: Vec<char> = matched_string.chars().collect();
+    let mut ind_char = 0;
+
+    for i in 0..path.len()-1 {
+      let node = *path.get(i).unwrap();
+      let mut transition = None;
+      let next_node = *path.get(i+1).unwrap();
+
+      for (tran, dst) in self.map.get(node).unwrap().transitions.iter() {
+        if *dst == *next_node { transition = Some(tran); break; }
+      }
+      let consumed_char = match transition.unwrap() {
+        NfaTransition::Character(_) => {
+          ind_char += 1;
+          Some(matched_chars.get(ind_char-1).unwrap())
+        },
+        _ => None,
+      };
+      // if transition consumes some character, then do group matches
+      if let Some(c) = consumed_char {
+        let src_groups = &self.map.get(node).unwrap().groups;
+        let dst_groups = &self.map.get(next_node).unwrap().groups;
+        for group in src_groups.intersection(dst_groups) {
+          match results.get_mut(group) {
+            None => { results.insert(*group, c.to_string()); }
+            Some(s) => { s.push(*c); }
+          }
+        }
+      };
+    }
+
+    results
+  }
 }

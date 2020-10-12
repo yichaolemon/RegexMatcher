@@ -354,7 +354,7 @@ impl<T: Eq + Hash + Debug + EdgeLabel + Ord> Matcher for RegexMatcher<T> {
       }
       Match{
         is_match: true,
-        groups: hashmap!(),
+        groups: self.nfa.find_groups_by_path(nfa_path.clone(), s),
         debug: format!("{:?}", nfa_path),
       }
     } else { Match::default() }
