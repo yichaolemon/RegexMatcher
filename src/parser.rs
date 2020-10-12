@@ -192,11 +192,12 @@ fn parse_quantifiers(input_str: &str, group: GroupId) -> ParseResult {
 // Char, Group, Class, Boundaries
 fn parse_atom(input_str: &str, group: GroupId) -> ParseResult {
   if input_str.starts_with("(") {
+    let this_group = group;
     let (regex, str_remaining, group) =
-      parse_alternative(input_str.get(1..).unwrap(), group)?;
+      parse_alternative(input_str.get(1..).unwrap(), this_group+1)?;
     if str_remaining.starts_with(")") {
       // Here's where we increment group id.
-      Ok((Regex::Group(regex.into(), group), str_remaining.get(1..).unwrap(), group+1))
+      Ok((Regex::Group(regex.into(), this_group), str_remaining.get(1..).unwrap(), group))
     } else {
       Err("Unbalanced parenthesis in regex".into())
     }
