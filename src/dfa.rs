@@ -274,12 +274,14 @@ impl<T: Eq + Hash + Debug + EdgeLabel + Ord> Matcher for RegexMatcher<T> {
       let mut found_match = false;
 
       for (transition, dst) in transitions {
+        let mut match_consumes_char = false;
         let new_found_match = match transition {
           DfaTransition::Character(cc) => {
             match c {
               None => false,
               Some(c) => if cc.matches_char(c) {
                 i += 1;
+                match_consumes_char = true;
                 true
               } else { false }
             }
@@ -302,10 +304,12 @@ impl<T: Eq + Hash + Debug + EdgeLabel + Ord> Matcher for RegexMatcher<T> {
           if found_match {
             panic!("invalid dfa has two output edges for char '{:?}' at node {:?}. dfa is {:?}", c, dfa_node, self);
           }
-          // We have transitioned from dfa_node to dst by consuming c.
+          // We have transitioned from dfa_node to dst by consuming c or by consuming a boundary.
           // Now we find paths in the NFA that could have gotten us here.
-          if let Some(c) = c {
-            possible_paths = self.nfa.extend_paths_by_char(possible_paths, c);
+          if match_consumes_char {
+            if let Some(c) = c {
+              possible_paths = self.nfa.extend_paths_by_char(possible_paths, c);
+            }
           }
           let boundaries = dst.iter().filter_map(|id| match id {
             DfaIdentifier::Bound(b) => Some(b),
