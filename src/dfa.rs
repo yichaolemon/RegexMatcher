@@ -437,8 +437,8 @@ mod group_tests {
 
   #[test]
   fn test_greedy_match() {
-    let r: Regex = ".*<a>(.*)</a>.*".try_into().unwrap();
-    let my_match = r.matcher().match_string("<p>hi</p><a>thing</a>yes<a>bye</a>heeee");
+    let r: Regex = "<a>(.*)</a>.*".try_into().unwrap();
+    let my_match = r.matcher().match_string("<a>thing</a>yes<a>bye</a>heeee");
     assert_eq!(my_match.group(1), Some("thing</a>yes<a>bye"));
   }
 
